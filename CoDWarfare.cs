@@ -1730,16 +1730,31 @@ namespace Oxide.Plugins
                     
                     string weaponShortname = gun.GetItem().info.shortname;
                     
-                    // Per-weapon muzzle flash
+                    // Get the muzzle bone transform for proper positioning
+                    Transform muzzleTransform = gun.MuzzlePoint;
+                    uint muzzleBone = StringPool.Get("muzzle_flash");
+                    
+                    // Per-weapon muzzle flash - parented to gun's muzzle bone
                     string muzzleEffect = WeaponMuzzleFlash.ContainsKey(weaponShortname) 
                         ? WeaponMuzzleFlash[weaponShortname] 
                         : "assets/bundled/prefabs/fx/muzzleflash/assaultrifle.prefab";
-                    Effect.server.Run(muzzleEffect, gun, StringPool.Get("muzzle"), Vector3.zero, Vector3.forward);
                     
-                    // Per-weapon gun fire sound
+                    if (muzzleTransform != null)
+                    {
+                        // Use muzzle point position and rotation from the gun
+                        Effect.server.Run(muzzleEffect, muzzleTransform.position, muzzleTransform.forward, null, true);
+                    }
+                    else
+                    {
+                        // Fallback: parent to gun entity with muzzle bone
+                        Effect.server.Run(muzzleEffect, gun, muzzleBone, Vector3.zero, Vector3.forward);
+                    }
+                    
+                    // Per-weapon gun fire sound - parented to gun's muzzle position
                     if (WeaponFireSound.ContainsKey(weaponShortname))
                     {
-                        Effect.server.Run(WeaponFireSound[weaponShortname], player.transform.position);
+                        Vector3 soundPos = muzzleTransform != null ? muzzleTransform.position : gun.transform.position;
+                        Effect.server.Run(WeaponFireSound[weaponShortname], soundPos);
                     }
                     
                     Ray ray = player.eyes.HeadRay();
