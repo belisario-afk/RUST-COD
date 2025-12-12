@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>KillaDome Emblem Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
+    
+    <style>
+        /* --- THEME & LAYOUT --- */
+        body {
+            font-family: 'Roboto', sans-serif;
+            background-color: #0f0f0f;
+            color: #ccc;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden; 
+        }
+
+        /* HEADER AREA */
+        .header-bar {
+            width: 98%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+        }
+
+        h1 {
+            font-family: 'Black Ops One', cursive;
+            color: #ce422b;
+            margin: 0;
+            letter-spacing: 2px;
+            font-size: 24px;
+        }
+
+        .status-badge {
+            background: #222;
+            padding: 5px 15px;
+            border-radius: 4px;
+            border: 1px solid #333;
+            font-size: 0.8rem;
+            color: #777;
+        }
+        .status-badge.connected {
+            color: #4caf50;
+            border-color: #4caf50;
+            background: rgba(76, 175, 80, 0.1);
+        }
+
+        /* WORKSPACE */
+        .workspace {
+            display: flex;
+            width: 98%;
+            height: calc(100vh - 80px);
+            gap: 15px;
+        }
+
+        /* --- COLUMN 1: ASSETS (LEFT) --- */
+        .panel-left {
+            width: 280px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+        .panel-header {
+            background: #252525;
+            padding: 10px;
+            font-weight: bold;
+            border-bottom: 1px solid #333;
+            text-transform: uppercase;
+            font-size: 0.8rem;
+            color: #fff;
+            text-align: center;
+        }
+        .asset-grid {
+            padding: 10px;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        .asset-btn {
+            aspect-ratio: 1;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: 0.2s;
+        }
+        .asset-btn:hover { background: #444; border-color: #ce422b; }
+        .asset-btn svg { width: 70%; height: 70%; fill: #aaa; pointer-events: none; }
+
+        /* --- COLUMN 2: CANVAS (CENTER) --- */
+        .panel-center {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            gap: 20px;
+            padding-top: 40px;
+            background: #111;
+            border: 1px solid #222;
+        }
+
+        .canvas-container-outer {
+            border: 2px solid #ce422b;
+            box-shadow: 0 0 30px rgba(0,0,0,0.8);
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 15px;
+            background: #222;
+            padding: 10px 20px;
+            border-radius: 50px;
+            border: 1px solid #333;
+        }
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-right: 1px solid #444;
+            padding-right: 15px;
+        }
+        .tool-group:last-child { border: none; }
+        
+        input[type="color"] { background: none; border: none; width: 30px; height: 30px; cursor: pointer; }
+        
+        button.action-btn {
+            background: #444; border: none; color: white;
+            padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.8rem;
+        }
+        button.action-btn:hover { background: #666; }
+        button.save-btn { background: #ce422b; }
+        button.save-btn:hover { background: #e05e46; }
+
+        /* --- COLUMN 3: LAYERS (RIGHT) --- */
+        .panel-right {
+            width: 250px;
+            background: #1a1a1a;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .layers-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
+        
+        .layer-item {
+            display: flex; align-items: center; padding: 8px 10px; background: #222;
+            border-bottom: 1px solid #333; cursor: pointer; user-select: none; font-size: 0.85rem;
+        }
+        .layer-item:hover { background: #2a2a2a; }
+        .layer-item.active { background: #3d3d3d; border-left: 3px solid #ce422b; }
+        
+        .layer-name { flex: 1; margin-left: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+        .layer-icon { width: 20px; height: 20px; background: #444; border-radius: 3px; }
+        .layer-actions { display: flex; gap: 5px; opacity: 0.5; }
+        .layer-item:hover .layer-actions { opacity: 1; }
+        
+        .mini-btn {
+            background: none; border: 1px solid #555; color: #aaa;
+            width: 20px; height: 20px; font-size: 10px; cursor: pointer; border-radius: 2px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .mini-btn.del:hover { background: #a00; color: #fff; border-color: #a00; }
+
+    </style>
+</head>
+<body>
+
+    <div class="header-bar">
+        <h1>KillaDome Emblem Editor</h1>
+        <div id="statusBadge" class="status-badge">Guest Mode (Not Linked)</div>
+    </div>
+
+    <div class="workspace">
+        
+        <div class="panel-left">
+            <div class="panel-header">Decal Library</div>
+            <div class="asset-grid" id="assetGrid"></div>
+        </div>
+
+        <div class="panel-center">
+            <div class="canvas-container-outer">
+                <canvas id="c" width="1133" height="207"></canvas>
+            </div>
+
+            <div class="toolbar">
+                <div class="tool-group">
+                    <label style="font-size:0.7rem; text-transform:uppercase;">Color</label>
+                    <input type="color" id="colorInput" onchange="updateColor(this.value)" value="#ffffff">
+                </div>
+                <div class="tool-group">
+                    <label style="font-size:0.7rem; text-transform:uppercase;">BG</label>
+                    <input type="color" id="bgColorInput" onchange="updateBgColor(this.value)" value="#000000">
+                </div>
+                <div class="tool-group">
+                    <button class="action-btn" onclick="bringForward()">Up ▲</button>
+                    <button class="action-btn" onclick="sendBackward()">Down ▼</button>
+                </div>
+                <button class="action-btn save-btn" onclick="exportImage()">SAVE CARD</button>
+            </div>
+        </div>
+
+        <div class="panel-right">
+            <div class="panel-header">Layers</div>
+            <div class="layers-list" id="layersList"></div>
+        </div>
+    </div>
+
+    <script>
+        // ===========================================
+        // 0. CONFIGURATION & STATE
+        // ===========================================
+        
+        // FIXED FOR YOUR VPS
+        const BRIDGE_URL = "http://159.89.137.231:3000/upload"; 
+        
+        let currentUserSteamId = null;
+
+        // ===========================================
+        // 1. SMART LINK LOGIC (Runs on Load)
+        // ===========================================
+        window.onload = function() {
+            // Check URL for ?id=76561198xxxxxx
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.has('id')) {
+                currentUserSteamId = urlParams.get('id');
+                
+                // Update UI to show connection
+                const badge = document.getElementById('statusBadge');
+                badge.innerText = `Connected: ${currentUserSteamId}`;
+                badge.classList.add('connected');
+                
+                console.log("Auto-login successful:", currentUserSteamId);
+            }
+            updateLayersPanel(); // Initial UI render
+        };
+
+        // ===========================================
+        // 2. ASSET LIBRARY
+        // ===========================================
+        const svgAssets = [
+            { name: "Square", path: "M 0 0 h 512 v 512 h -512 Z" },
+            { name: "Circle", path: "M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512z" },
+            { name: "Triangle", path: "M256 32L20 464h472L256 32z" },
+            { name: "Ring", path: "M256 80c-97.2 0-176 78.8-176 176s78.8 176 176 176 176-78.8 176-176S353.2 80 256 80z m0 304c-70.7 0-128-57.3-128-128s57.3-128 128-128 128 57.3 128 128-57.3 128-128 128z" },
+            { name: "Chevron", path: "M256 298.3l174.2-162.7c4.6-4.3 11.5-4.9 16.7-1.5l25.1 16.5c6.3 4.1 7.2 12.6 1.9 17.8L265.4 366.8c-5.1 5.1-13.6 5.1-18.7 0L19.1 168.4c-5.3-5.3-4.4-13.7 1.9-17.8l25.1-16.5c5.2-3.4 12.1-2.8 16.7 1.5L256 298.3z" },
+            { name: "Star", path: "M256 32L326.6 175.3 484.6 198.2 370.3 309.7 397.3 467.2 256 392.8 114.7 467.2 141.7 309.7 27.4 198.2 185.4 175.3 256 32z" },
+            { name: "Shield", path: "M256,0C114.6,0,0,114.6,0,256s114.6,256,256,256s256-114.6,256-256S397.4,0,256,0z M384,256H256v128C185.3,384,128,326.7,128,256H256V128C326.7,128,384,185.3,384,256z" },
+            { name: "Skull", path: "M256 0C114.6 0 0 87.1 0 194.7c0 48.7 17.5 93.3 46.8 128.5 2.1 2.5 3.3 5.7 3.3 9v74.5c0 14.8 8.8 28.1 22.4 33.9l36.3 15.6c13.7-43.2 54.3-74.8 102.1-74.8s88.4 31.6 102.1 74.8l36.3-15.6c13.6-5.8 22.4-19.1 22.4-33.9v-74.5c0-3.3 1.2-6.5 3.3-9C494.5 288 512 243.4 512 194.7 512 87.1 397.4 0 256 0z" },
+            { name: "Biohazard", path: "M256 48a208 208 0 1 1 0 416 208 208 0 1 1 0-416zm0 464A256 256 0 1 0 256 0a256 256 0 1 0 0 512z M368 256a112 112 0 1 1-224 0 112 112 0 1 1 224 0z" },
+            { name: "Target", path: "M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512zM369 209L241 337c-9.4 9.4-24.6 9.4-33.9 0l-64-64c-9.4-9.4-9.4-24.6 0-33.9s24.6-9.4 33.9 0l47 47L335 175c9.4-9.4 24.6-9.4 33.9 0s9.4 24.6 0 33.9z" },
+            { name: "Grenade", path: "M368 144h-49.4l39.1-78.2c4-8 2.4-17.7-3.9-23.9C343.6 31.6 329 24.7 313.7 21.9c-16.9-3.1-34.2-.9-50.3 6.4L146.3 80c-17.5 7.9-23.3 29.6-11.7 44.4l37.1 47.7c-18.7 21.5-32.5 47.5-39.7 76H96c-17.7 0-32 14.3-32 32s14.3 32 32 32h32.1c2 25.9 10 50 23.1 71.3L123 411.7c-12.5 12.5-12.5 32.8 0 45.3s32.8 12.5 45.3 0l28.3-28.3c21.3 13.1 45.4 21.1 71.3 23.1V484c0 17.7 14.3 32 32 32s32-14.3 32-32v-32.1c25.9-2 50-10 71.3-23.1l28.3 28.3c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3l-28.3-28.3c13.1-21.3 21.1-45.4 23.1-71.3H484c17.7 0 32-14.3 32-32s-14.3-32-32-32h-35.9c-7.2-28.5-21-54.5-39.7-76l37.1-47.7c11.6-14.9 5.8-36.6-11.7-44.4L368 144z" },
+            { name: "Wings", path: "M116.9 286.1c-5.8-22.5-13-44.3-21.8-65.5-17-41-38.6-78-62.8-111.7C14.6 82.6 0 103.6 0 126.2c0 44 18.3 83.8 47.7 112.5 15.9 15.5 34.1 28.3 53.7 38.2 5 2.6 10.4 3.1 15.5 9.2zM431.5 238.7c19.6-9.9 37.8-22.7 53.7-38.2C514.1 171.8 532.4 132 532.4 88c0-22.6-14.6-43.6-32.3-17.2-24.2 33.7-45.8 70.7-62.8 111.7-8.8 21.2-16 43-21.8 65.5 5.1-6.1 10.5-6.6 15.5-9.2zM266.2 297.5c37.2-2.1 72.7-13 104.7-31 34.9-19.7 65.8-46.5 91.4-79.8C411 225 343.4 256.6 266.2 256.6c-77.2 0-144.8-31.6-196.1-89.9 25.6 33.3 56.5 60.1 91.4 79.8 32 18 67.5 28.9 104.7 31z" },
+            { name: "Knife", path: "M472.9 33.6c-7.9-7.4-20.2-7.1-27.8 .7l-156 160.8c-6.1 6.3-4.6 16.7 2.8 20.9l26.4 15.1c4.2 2.4 9.4 1.7 12.9-1.9L473.6 61.4c7.6-7.8 7.3-20.4-.7-27.8zm-298.6 305c-6.1 6.3-4.6 16.7 2.8 20.9l26.4 15.1c4.2 2.4 9.4 1.7 12.9-1.9l142.4-149.2c7.6-7.8 7.3-20.4-.7-27.8-7.9-7.4-20.2-7.1-27.8 .7L174.3 338.6z M57.4 200.6L12.3 252.8c-12.7 14.7-12.7 36.6 0 51.3L153.2 467c14.7 17 38.6 17 53.3 0l45.1-52.2c12.7-14.7 12.7-36.6 0-51.3L110.7 200.6c-14.7-17-38.6-17-53.3 0z" },
+            { name: "Crosshair", path: "M256,48C141.3,48,48,141.3,48,256s93.3,208,208,208s208-93.3,208-208S370.7,48,256,48z M256,432c-97,0-176-79-176-176S159,80,256,80s176,79,176,176S353,432,256,432z M240,128h32v96h96v32h-96v96h-32v-96h-96v-32h96V128z" }
+        ];
+
+        // ===========================================
+        // 3. FABRIC JS INIT
+        // ===========================================
+        const canvas = new fabric.Canvas('c', {
+            preserveObjectStacking: true, 
+            backgroundColor: '#000000'
+        });
+
+        // ===========================================
+        // 4. UI POPULATION & LISTENERS
+        // ===========================================
+        const assetGrid = document.getElementById('assetGrid');
+        
+        svgAssets.forEach(asset => {
+            const btn = document.createElement('div');
+            btn.className = 'asset-btn';
+            btn.title = asset.name;
+            btn.innerHTML = `<svg viewBox="0 0 512 512"><path d="${asset.path}"></path></svg>`;
+            btn.onclick = () => addShape(asset.path, asset.name);
+            assetGrid.appendChild(btn);
+        });
+
+        // Listen for canvas changes to update UI
+        canvas.on('selection:created', () => { updateLayersPanel(); syncColorTool(); });
+        canvas.on('selection:updated', () => { updateLayersPanel(); syncColorTool(); });
+        canvas.on('selection:cleared', () => { updateLayersPanel(); });
+        canvas.on('object:modified', updateLayersPanel);
+
+        // ===========================================
+        // 5. HELPER FUNCTIONS
+        // ===========================================
+        function addShape(pathData, name) {
+            const svgString = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="${pathData}" fill="#ffffff"></path></svg>`;
+            
+            fabric.loadSVGFromString(svgString, (objects, options) => {
+                const loadedObject = fabric.util.groupSVGElements(objects, options);
+                loadedObject.set({
+                    left: canvas.width / 2, top: canvas.height / 2,
+                    originX: 'center', originY: 'center',
+                    scaleX: 0.2, scaleY: 0.2,
+                    fill: document.getElementById('colorInput').value,
+                    layerName: name || "Shape" 
+                });
+                canvas.add(loadedObject);
+                canvas.setActiveObject(loadedObject);
+                canvas.renderAll();
+                updateLayersPanel();
+            });
+        }
+
+        function updateLayersPanel() {
+            const layersListEl = document.getElementById('layersList');
+            layersListEl.innerHTML = '';
+            const objects = canvas.getObjects();
+            
+            if(objects.length === 0) {
+                layersListEl.innerHTML = '<div style="padding:20px; text-align:center; color:#555; font-size:0.8rem;">No layers</div>';
+                return;
+            }
+
+            for (let i = objects.length - 1; i >= 0; i--) {
+                const obj = objects[i];
+                const isActive = (canvas.getActiveObject() === obj);
+                
+                const item = document.createElement('div');
+                item.className = `layer-item ${isActive ? 'active' : ''}`;
+                item.onclick = (e) => {
+                    if(e.target.tagName === 'BUTTON') return;
+                    canvas.setActiveObject(obj);
+                    canvas.renderAll();
+                };
+
+                const icon = document.createElement('div');
+                icon.className = 'layer-icon';
+                icon.style.backgroundColor = obj.fill || '#fff';
+                
+                const name = document.createElement('span');
+                name.className = 'layer-name';
+                name.innerText = `${obj.layerName} (${i})`;
+
+                const actions = document.createElement('div');
+                actions.className = 'layer-actions';
+                const btnDel = document.createElement('button');
+                btnDel.className = 'mini-btn del';
+                btnDel.innerText = 'X';
+                btnDel.onclick = () => { canvas.remove(obj); updateLayersPanel(); };
+                actions.appendChild(btnDel);
+
+                item.appendChild(icon); item.appendChild(name); item.appendChild(actions);
+                layersListEl.appendChild(item);
+            }
+        }
+
+        function syncColorTool() {
+            const active = canvas.getActiveObject();
+            if(active && typeof active.fill === 'string') {
+                document.getElementById('colorInput').value = active.fill;
+            }
+        }
+
+        function updateColor(val) {
+            const active = canvas.getActiveObject();
+            if(active) { active.set('fill', val); canvas.renderAll(); updateLayersPanel(); }
+        }
+
+        function updateBgColor(val) {
+            canvas.backgroundColor = val; canvas.renderAll();
+        }
+
+        function bringForward() {
+            const active = canvas.getActiveObject();
+            if(active) { canvas.bringForward(active); updateLayersPanel(); }
+        }
+
+        function sendBackward() {
+            const active = canvas.getActiveObject();
+            if(active) { canvas.sendBackwards(active); updateLayersPanel(); }
+        }
+
+        // ===========================================
+        // 6. EXPORT / BRIDGE LOGIC
+        // ===========================================
+        function exportImage() {
+            // 1. Check ID
+            let steamId = currentUserSteamId;
+            
+            // Fallback if not using smart link
+            if (!steamId) {
+                steamId = prompt("No SteamID detected. Please enter your Steam64 ID:");
+            }
+
+            if (!steamId) return; // Cancelled
+
+            // 2. Prepare Data
+            canvas.discardActiveObject();
+            canvas.requestRenderAll();
+            const dataURL = canvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
+
+            const saveBtn = document.querySelector('.save-btn');
+            const originalText = saveBtn.innerText;
+            saveBtn.innerText = "SENDING...";
+            saveBtn.disabled = true;
+
+            // 3. Send to Node.js Bridge
+            fetch(BRIDGE_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    steamId: steamId,
+                    imageData: dataURL
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                alert(`Success! Emblem sent for SteamID: ${steamId}`);
+                saveBtn.innerText = "SENT!";
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("Connection Failed.\n\nDid you update the IP in the HTML file?\nIs the Node.js server running?");
+                saveBtn.innerText = originalText;
+                saveBtn.disabled = false;
+            });
+        }
+    </script>
+</body>
+</html>
