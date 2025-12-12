@@ -1434,6 +1434,9 @@ namespace Oxide.Plugins
             {
                 var victimData = GetPlayerData(victim.userID);
                 victimData.Deaths++;
+                
+                // Clean up death entities - remove corpse, loot bag, dropped weapons
+                CleanupDeathEntities(victim);
             }
 
             if (killer != null)
@@ -1461,6 +1464,52 @@ namespace Oxide.Plugins
                 GiveCurrentWeapon(killer); 
                 BatchedHUDUpdate(killer);
             }
+        }
+        
+        // Clean up corpse, loot bags, and dropped items when player dies in match
+        void CleanupDeathEntities(BasePlayer victim)
+        {
+            if (victim == null) return;
+            Vector3 deathPos = victim.transform.position;
+            
+            // Small delay to let the death entities spawn first
+            timer.Once(0.5f, () => {
+                // Find and destroy corpse
+                var corpses = Pool.GetList<PlayerCorpse>();
+                Vis.Entities(deathPos, 5f, corpses);
+                foreach (var corpse in corpses)
+                {
+                    if (corpse != null && corpse.playerSteamID == victim.userID)
+                    {
+                        corpse.Kill();
+                    }
+                }
+                Pool.FreeList(ref corpses);
+                
+                // Find and destroy dropped items (weapons, etc)
+                var droppedItems = Pool.GetList<DroppedItem>();
+                Vis.Entities(deathPos, 5f, droppedItems);
+                foreach (var dropped in droppedItems)
+                {
+                    if (dropped != null && !dropped.IsDestroyed)
+                    {
+                        dropped.Kill();
+                    }
+                }
+                Pool.FreeList(ref droppedItems);
+                
+                // Find and destroy item containers (backpacks/loot bags)
+                var containers = Pool.GetList<DroppedItemContainer>();
+                Vis.Entities(deathPos, 5f, containers);
+                foreach (var container in containers)
+                {
+                    if (container != null && !container.IsDestroyed)
+                    {
+                        container.Kill();
+                    }
+                }
+                Pool.FreeList(ref containers);
+            });
         }
         
         // Hook to intercept player respawn and teleport to arena spawn
