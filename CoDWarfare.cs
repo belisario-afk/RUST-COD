@@ -968,11 +968,62 @@ namespace Oxide.Plugins
             }
         }
 
-        // Ensure HUD updates when items are used (consumables/throwables)
+        // Ensure HUD updates when items are used (consumables like syringes)
         void OnItemUse(Item item, int amountToUse)
         {
             var player = item.GetOwnerPlayer();
             if (player != null && CurrentState == GameState.Match) NextTick(() => DrawGameHUD(player));
+        }
+        
+        // Update HUD when grenade/throwable is thrown
+        void OnExplosiveThrown(BasePlayer player, BaseEntity entity, ThrownWeapon item)
+        {
+            if (CurrentState == GameState.Match && player != null)
+            {
+                // Delay to allow inventory to update
+                timer.Once(0.1f, () => DrawGameHUD(player));
+            }
+        }
+        
+        // Also hook into RocketLauncher and other throwables
+        void OnRocketLaunched(BasePlayer player, BaseEntity entity)
+        {
+            if (CurrentState == GameState.Match && player != null)
+            {
+                timer.Once(0.1f, () => DrawGameHUD(player));
+            }
+        }
+        
+        // Hook for when consumables are consumed (medical items)
+        void OnItemAction(Item item, string action, BasePlayer player)
+        {
+            if (CurrentState == GameState.Match && player != null)
+            {
+                // Small delay to allow inventory changes to complete
+                timer.Once(0.2f, () => DrawGameHUD(player));
+            }
+        }
+        
+        // Hook for when medical items finish being used
+        void OnHealingItemUse(MedicalTool tool, BasePlayer player)
+        {
+            if (CurrentState == GameState.Match && player != null)
+            {
+                timer.Once(0.5f, () => DrawGameHUD(player));
+            }
+        }
+        
+        // Generic item removal hook - catches when items are removed from inventory
+        void OnItemRemovedFromContainer(ItemContainer container, Item item)
+        {
+            if (CurrentState != GameState.Match) return;
+            var player = container?.playerOwner;
+            if (player != null && LobbyQueue.Contains(player.userID))
+            {
+                timer.Once(0.1f, () => {
+                    if (player != null && player.IsConnected) DrawGameHUD(player);
+                });
+            }
         }
 
         void OnEntityDeath(BaseCombatEntity entity, HitInfo info)
