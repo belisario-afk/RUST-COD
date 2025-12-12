@@ -1423,7 +1423,7 @@ namespace Oxide.Plugins
                     killerData.Kills++;
                 }
             }
-            timer.Once(config.KillCardDuration, () => { if (victim != null && !victim.IsConnected) return; victim.Respawn(); RespawnPlayer(victim); });
+            timer.Once(config.KillCardDuration, () => { if (victim != null && victim.IsConnected && !victim.IsDead()) return; if (victim != null) victim.Respawn(); });
 
             if (killer != null && killer != victim)
             {
@@ -1435,6 +1435,37 @@ namespace Oxide.Plugins
                 Effect.server.Run("assets/bundled/prefabs/fx/minigames/chippy/chippy_payout.prefab", killer.transform.position); 
                 GiveCurrentWeapon(killer); 
                 BatchedHUDUpdate(killer);
+            }
+        }
+        
+        // Hook to intercept player respawn and teleport to arena spawn
+        void OnPlayerRespawned(BasePlayer player)
+        {
+            if (CurrentState != GameState.Match) return;
+            if (!LobbyQueue.Contains(player.userID)) return;
+            
+            // Teleport to arena spawn point
+            if (ArenaSpawns.ContainsKey(CurrentMap) && ArenaSpawns[CurrentMap].Count > 0)
+            {
+                var spawns = ArenaSpawns[CurrentMap];
+                Vector3 spawnPos = spawns[UnityEngine.Random.Range(0, spawns.Count)];
+                
+                // Use NextTick to ensure player is fully spawned before teleporting
+                NextTick(() => {
+                    if (player != null && player.IsConnected)
+                    {
+                        TeleportTo(player, spawnPos);
+                        player.Heal(100);
+                        player.metabolism.calories.value = 500;
+                        GiveCurrentWeapon(player);
+                        DrawCenterBanner(player);
+                        BatchedHUDUpdate(player);
+                    }
+                });
+            }
+            else
+            {
+                PrintWarning($"[CoDWarfare] No spawns for map '{CurrentMap}'! Add spawns with /cod.addspawn {CurrentMap}");
             }
         }
         
