@@ -1773,7 +1773,12 @@ namespace Oxide.Plugins
             public Dictionary<string, List<Vector3>> Arenas = new Dictionary<string, List<Vector3>>(); 
             public Dictionary<ulong, PlayerStoreData> Players = new Dictionary<ulong, PlayerStoreData>();
         }
-        void SaveData() { Interface.Oxide.DataFileSystem.WriteObject("CoDWarfare", new StoredData { Arenas = ArenaSpawns, Players = StoreData }); }
+        void SaveData() 
+        { 
+            Interface.Oxide.DataFileSystem.WriteObject("CoDWarfare", new StoredData { Arenas = ArenaSpawns, Players = StoreData }); 
+            Puts($"[CoDWarfare] Data saved - {StoreData.Count} players, {ArenaSpawns.Values.Sum(x => x.Count)} total spawns");
+        }
+        
         void LoadData() 
         { 
             var data = Interface.Oxide.DataFileSystem.ReadObject<StoredData>("CoDWarfare"); 
@@ -1782,13 +1787,27 @@ namespace Oxide.Plugins
                 ArenaSpawns = data.Arenas ?? new Dictionary<string, List<Vector3>>(); 
                 StoreData = data.Players ?? new Dictionary<ulong, PlayerStoreData>(); 
             }
+            
             // Initialize empty map spawn lists if needed
             foreach (var map in AvailableMaps)
             {
                 if (!ArenaSpawns.ContainsKey(map))
                     ArenaSpawns[map] = new List<Vector3>();
             }
-            Puts($"[CoDWarfare] Loaded spawns - Nuketown: {(ArenaSpawns.ContainsKey("Nuketown") ? ArenaSpawns["Nuketown"].Count : 0)}, Rust: {(ArenaSpawns.ContainsKey("Rust") ? ArenaSpawns["Rust"].Count : 0)}, Shipment: {(ArenaSpawns.ContainsKey("Shipment") ? ArenaSpawns["Shipment"].Count : 0)}");
+            
+            // Ensure all player data has properly initialized lists (fix for null lists after deserialization)
+            int totalEmblems = 0;
+            foreach (var kvp in StoreData)
+            {
+                if (kvp.Value.SavedEmblems == null)
+                    kvp.Value.SavedEmblems = new List<string>();
+                if (kvp.Value.UnlockedCards == null)
+                    kvp.Value.UnlockedCards = new List<string> { "Default" };
+                totalEmblems += kvp.Value.SavedEmblems.Count;
+            }
+            
+            Puts($"[CoDWarfare] Data loaded - {StoreData.Count} players with {totalEmblems} total emblems");
+            Puts($"[CoDWarfare] Spawns - Nuketown: {(ArenaSpawns.ContainsKey("Nuketown") ? ArenaSpawns["Nuketown"].Count : 0)}, Rust: {(ArenaSpawns.ContainsKey("Rust") ? ArenaSpawns["Rust"].Count : 0)}, Shipment: {(ArenaSpawns.ContainsKey("Shipment") ? ArenaSpawns["Shipment"].Count : 0)}");
         }
         
         [ChatCommand("cod.listspawns")]
@@ -1842,6 +1861,30 @@ namespace Oxide.Plugins
             {
                 player.ChatMessage($"<color=#ce422b>[CoD]</color> Invalid map or spawn index");
             }
+        }
+        
+        [ChatCommand("cod.myemblems")]
+        void CmdMyEmblems(BasePlayer player, string cmd, string[] args)
+        {
+            var data = GetPlayerData(player.userID);
+            player.ChatMessage($"<color=#ce422b>[CoD]</color> <color=#FFD700>Your Emblems:</color> {data.SavedEmblems.Count} saved");
+            int i = 1;
+            foreach (var emblem in data.SavedEmblems)
+            {
+                // Show truncated URL
+                string shortUrl = emblem.Length > 50 ? emblem.Substring(0, 50) + "..." : emblem;
+                player.ChatMessage($"  #{i}: {shortUrl}");
+                i++;
+            }
+            player.ChatMessage($"<color=#FFD700>Equipped:</color> {(string.IsNullOrEmpty(data.EquippedCardUrl) ? "None" : "Custom")}");
+        }
+        
+        [ChatCommand("cod.forcesave")]
+        void CmdForceSave(BasePlayer player, string cmd, string[] args)
+        {
+            if (!player.IsAdmin) return;
+            SaveData();
+            player.ChatMessage("<color=#ce422b>[CoD]</color> Data force saved!");
         }
     }
 }
