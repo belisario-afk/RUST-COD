@@ -273,8 +273,33 @@ namespace Oxide.Plugins
         void CmdEmblem(BasePlayer player)
         {
             string url = $"{config.EditorUrl}?id={player.UserIDString}";
-            player.ChatMessage($"<color=#ce422b><b>[EMBLEM EDITOR]</b></color>");
-            player.ChatMessage($"Click here to open the editor: <color=#4caf50><a href='{url}'><b>[OPEN EDITOR]</b></a></color>");
+            
+            // Create a note item with the emblem editor link
+            Item note = ItemManager.CreateByName("note", 1);
+            if (note != null)
+            {
+                // Set the note text to the emblem editor URL
+                note.text = $"=== EMBLEM EDITOR ===\n\nOpen this link in your browser:\n\n{url}\n\n(Copy and paste into your web browser)";
+                note.name = "Emblem Editor Link";
+                
+                // Give the note to the player
+                if (!player.inventory.GiveItem(note))
+                {
+                    // If inventory is full, drop it at their feet
+                    note.Drop(player.transform.position, Vector3.up);
+                    player.ChatMessage("<color=#ce422b>[CoD]</color> Inventory full! Note dropped at your feet.");
+                }
+                else
+                {
+                    player.ChatMessage("<color=#ce422b>[CoD]</color> <color=#4caf50>Emblem editor link given as a note!</color> Check your inventory and read the note for the URL.");
+                }
+            }
+            else
+            {
+                // Fallback to chat message if note creation fails
+                player.ChatMessage($"<color=#ce422b><b>[EMBLEM EDITOR]</b></color>");
+                player.ChatMessage($"Click here to open the editor: <color=#4caf50><a href='{url}'><b>[OPEN EDITOR]</b></a></color>");
+            }
         }
 
         [ConsoleCommand("emblem.update")]
