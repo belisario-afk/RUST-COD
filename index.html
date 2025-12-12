@@ -2,22 +2,53 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>KillaDome Emblem Editor</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Black+Ops+One&family=Roboto:wght@400;700&display=swap" rel="stylesheet">
     
     <style>
+        /* --- CSS VARIABLES FOR THEMING --- */
+        :root {
+            --bg-primary: #0f0f0f;
+            --bg-secondary: #1a1a1a;
+            --bg-tertiary: #222;
+            --bg-hover: #2a2a2a;
+            --border-color: #333;
+            --border-light: #444;
+            --text-primary: #fff;
+            --text-secondary: #ccc;
+            --text-muted: #888;
+            --accent-color: #ce422b;
+            --accent-hover: #e05e46;
+            --success-color: #4caf50;
+            --info-color: #2980b9;
+        }
+        
+        body.light-theme {
+            --bg-primary: #f5f5f5;
+            --bg-secondary: #fff;
+            --bg-tertiary: #e8e8e8;
+            --bg-hover: #ddd;
+            --border-color: #ccc;
+            --border-light: #bbb;
+            --text-primary: #222;
+            --text-secondary: #444;
+            --text-muted: #666;
+        }
+        
         /* --- THEME & LAYOUT --- */
         body {
             font-family: 'Roboto', sans-serif;
-            background-color: #0f0f0f;
-            color: #ccc;
+            background-color: var(--bg-primary);
+            color: var(--text-secondary);
             display: flex;
             flex-direction: column;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
-            overflow: hidden; 
+            overflow-x: hidden;
+            transition: background-color 0.3s, color 0.3s;
         }
 
         /* HEADER AREA */
@@ -27,27 +58,52 @@
             justify-content: space-between;
             align-items: center;
             padding: 10px 0;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .header-left {
+            display: flex;
+            align-items: center;
+            gap: 15px;
         }
 
         h1 {
             font-family: 'Black Ops One', cursive;
-            color: #ce422b;
+            color: var(--accent-color);
             margin: 0;
             letter-spacing: 2px;
             font-size: 24px;
         }
 
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .theme-toggle {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
+            padding: 5px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+        .theme-toggle:hover { background: var(--bg-hover); }
+
         .status-badge {
-            background: #222;
+            background: var(--bg-tertiary);
             padding: 5px 15px;
             border-radius: 4px;
-            border: 1px solid #333;
+            border: 1px solid var(--border-color);
             font-size: 0.8rem;
-            color: #777;
+            color: var(--text-muted);
         }
         .status-badge.connected {
-            color: #4caf50;
-            border-color: #4caf50;
+            color: var(--success-color);
+            border-color: var(--success-color);
             background: rgba(76, 175, 80, 0.1);
         }
 
@@ -55,26 +111,27 @@
         .workspace {
             display: flex;
             width: 98%;
-            height: calc(100vh - 80px);
+            min-height: calc(100vh - 80px);
             gap: 15px;
         }
 
         /* --- COLUMN 1: ASSETS (LEFT) --- */
         .panel-left {
             width: 320px;
-            background: #1a1a1a;
-            border: 1px solid #333;
+            min-width: 280px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
         }
         .panel-header {
-            background: #252525;
+            background: var(--bg-tertiary);
             padding: 10px;
             font-weight: bold;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid var(--border-color);
             text-transform: uppercase;
             font-size: 0.8rem;
-            color: #fff;
+            color: var(--text-primary);
             text-align: center;
         }
         
@@ -82,7 +139,7 @@
         .category-tabs {
             display: flex;
             background: #1f1f1f;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid var(--border-color);
             flex-wrap: wrap;
         }
         .category-tab {
@@ -90,14 +147,14 @@
             padding: 8px 5px;
             text-align: center;
             cursor: pointer;
-            font-size: 0.65rem;
-            color: #888;
+            font-size: 0.6rem;
+            color: var(--text-muted);
             border-bottom: 2px solid transparent;
             transition: 0.2s;
-            min-width: 60px;
+            min-width: 45px;
         }
-        .category-tab:hover { color: #fff; background: #2a2a2a; }
-        .category-tab.active { color: #ce422b; border-bottom-color: #ce422b; background: #252525; }
+        .category-tab:hover { color: var(--text-primary); background: var(--bg-hover); }
+        .category-tab.active { color: var(--accent-color); border-bottom-color: var(--accent-color); background: var(--bg-tertiary); }
         
         .asset-grid {
             padding: 10px;
@@ -109,17 +166,57 @@
         }
         .asset-btn {
             aspect-ratio: 1;
-            background: #2a2a2a;
-            border: 1px solid #444;
+            background: var(--bg-hover);
+            border: 1px solid var(--border-light);
             border-radius: 4px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             transition: 0.2s;
+            position: relative;
         }
-        .asset-btn:hover { background: #444; border-color: #ce422b; }
+        .asset-btn:hover { background: var(--border-light); border-color: var(--accent-color); }
         .asset-btn svg { width: 70%; height: 70%; fill: #aaa; pointer-events: none; }
+        
+        /* Tooltips */
+        .asset-btn[data-tooltip]:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #000;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            white-space: nowrap;
+            z-index: 100;
+        }
+
+        /* Templates Section */
+        .templates-section {
+            padding: 10px;
+            border-top: 1px solid var(--border-color);
+        }
+        .template-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+        .template-btn {
+            background: var(--bg-hover);
+            border: 1px solid var(--border-light);
+            border-radius: 4px;
+            padding: 8px;
+            cursor: pointer;
+            font-size: 0.7rem;
+            color: var(--text-secondary);
+            text-align: center;
+            transition: 0.2s;
+        }
+        .template-btn:hover { background: var(--border-light); border-color: var(--accent-color); }
 
         /* --- COLUMN 2: CANVAS (CENTER) --- */
         .panel-center {
@@ -128,60 +225,111 @@
             flex-direction: column;
             align-items: center;
             justify-content: flex-start;
-            gap: 15px;
-            padding-top: 20px;
+            gap: 12px;
+            padding-top: 15px;
             background: #111;
-            border: 1px solid #222;
+            border: 1px solid var(--bg-tertiary);
+            min-width: 400px;
+        }
+
+        /* Zoom Controls */
+        .zoom-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: var(--bg-tertiary);
+            padding: 5px 10px;
+            border-radius: 4px;
+        }
+        .zoom-btn {
+            background: var(--border-light);
+            border: none;
+            color: var(--text-primary);
+            width: 28px;
+            height: 28px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        .zoom-btn:hover { background: var(--accent-color); }
+        .zoom-label { font-size: 0.8rem; color: var(--text-muted); min-width: 50px; text-align: center; }
+
+        .canvas-wrapper {
+            overflow: auto;
+            max-width: 100%;
+            max-height: 60vh;
         }
 
         .canvas-container-outer {
-            border: 2px solid #ce422b;
+            border: 2px solid var(--accent-color);
             box-shadow: 0 0 30px rgba(0,0,0,0.8);
+            transform-origin: center center;
+            transition: transform 0.2s;
         }
 
         .toolbar {
             display: flex;
-            gap: 10px;
-            background: #222;
-            padding: 10px 15px;
+            gap: 8px;
+            background: var(--bg-tertiary);
+            padding: 8px 12px;
             border-radius: 8px;
-            border: 1px solid #333;
+            border: 1px solid var(--border-color);
             flex-wrap: wrap;
             justify-content: center;
         }
         .tool-group {
             display: flex;
             align-items: center;
-            gap: 6px;
-            border-right: 1px solid #444;
-            padding-right: 10px;
+            gap: 5px;
+            border-right: 1px solid var(--border-light);
+            padding-right: 8px;
         }
         .tool-group:last-child { border: none; }
         .tool-label {
-            font-size: 0.65rem;
+            font-size: 0.6rem;
             text-transform: uppercase;
-            color: #888;
+            color: var(--text-muted);
         }
         
-        input[type="color"] { background: none; border: 1px solid #444; width: 28px; height: 28px; cursor: pointer; border-radius: 4px; }
-        input[type="range"] { width: 80px; cursor: pointer; }
-        input[type="number"] { width: 50px; background: #333; border: 1px solid #444; color: #fff; padding: 4px; border-radius: 3px; }
+        input[type="color"] { background: none; border: 1px solid var(--border-light); width: 26px; height: 26px; cursor: pointer; border-radius: 4px; }
+        input[type="range"] { width: 60px; cursor: pointer; }
+        input[type="number"] { width: 45px; background: var(--border-color); border: 1px solid var(--border-light); color: var(--text-primary); padding: 3px; border-radius: 3px; font-size: 0.75rem; }
+        select { background: var(--border-color); border: 1px solid var(--border-light); color: var(--text-primary); padding: 4px; border-radius: 3px; font-size: 0.75rem; cursor: pointer; }
         
         button.action-btn {
-            background: #444; border: none; color: white;
-            padding: 6px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.75rem;
+            background: var(--border-light); border: none; color: white;
+            padding: 5px 8px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 0.7rem;
+            position: relative;
         }
         button.action-btn:hover { background: #666; }
-        button.save-btn { background: #ce422b; }
-        button.save-btn:hover { background: #e05e46; }
-        button.upload-btn { background: #2980b9; }
+        button.action-btn[data-tooltip]:hover::after {
+            content: attr(data-tooltip);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #000;
+            color: #fff;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            white-space: nowrap;
+            z-index: 100;
+            margin-bottom: 5px;
+        }
+        button.save-btn { background: var(--accent-color); }
+        button.save-btn:hover { background: var(--accent-hover); }
+        button.upload-btn { background: var(--info-color); }
         button.upload-btn:hover { background: #3498db; }
+        button.undo-btn { background: #7f8c8d; }
+        button.redo-btn { background: #7f8c8d; }
 
         /* --- COLUMN 3: PROPERTIES & LAYERS (RIGHT) --- */
         .panel-right {
             width: 280px;
-            background: #1a1a1a;
-            border: 1px solid #333;
+            min-width: 240px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
             display: flex;
             flex-direction: column;
         }
@@ -189,60 +337,188 @@
         /* Properties Panel */
         .properties-section {
             padding: 10px;
-            border-bottom: 1px solid #333;
+            border-bottom: 1px solid var(--border-color);
         }
         .prop-row {
             display: flex;
             align-items: center;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
         .prop-label {
-            width: 70px;
-            font-size: 0.75rem;
-            color: #888;
+            width: 65px;
+            font-size: 0.7rem;
+            color: var(--text-muted);
         }
         .prop-input {
             flex: 1;
-            background: #333;
-            border: 1px solid #444;
-            color: #fff;
-            padding: 5px;
+            background: var(--border-color);
+            border: 1px solid var(--border-light);
+            color: var(--text-primary);
+            padding: 4px;
             border-radius: 3px;
-            font-size: 0.8rem;
+            font-size: 0.75rem;
+        }
+        
+        /* Gradient controls */
+        .gradient-row {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-bottom: 6px;
+        }
+        .gradient-preview {
+            width: 100%;
+            height: 20px;
+            border-radius: 3px;
+            border: 1px solid var(--border-light);
+            margin-bottom: 6px;
+        }
+        
+        /* Shadow controls */
+        .shadow-controls {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid var(--border-color);
         }
         
         .layers-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
         
         .layer-item {
-            display: flex; align-items: center; padding: 8px 10px; background: #222;
-            border-bottom: 1px solid #333; cursor: pointer; user-select: none; font-size: 0.8rem;
+            display: flex; align-items: center; padding: 6px 8px; background: var(--bg-tertiary);
+            border-bottom: 1px solid var(--border-color); cursor: pointer; user-select: none; font-size: 0.75rem;
         }
-        .layer-item:hover { background: #2a2a2a; }
-        .layer-item.active { background: #3d3d3d; border-left: 3px solid #ce422b; }
+        .layer-item:hover { background: var(--bg-hover); }
+        .layer-item.active { background: #3d3d3d; border-left: 3px solid var(--accent-color); }
         
-        .layer-name { flex: 1; margin-left: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
-        .layer-icon { width: 20px; height: 20px; background: #444; border-radius: 3px; }
-        .layer-actions { display: flex; gap: 5px; opacity: 0.5; }
+        .layer-name { flex: 1; margin-left: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;}
+        .layer-icon { width: 18px; height: 18px; background: var(--border-light); border-radius: 3px; }
+        .layer-actions { display: flex; gap: 4px; opacity: 0.5; }
         .layer-item:hover .layer-actions { opacity: 1; }
         
         .mini-btn {
             background: none; border: 1px solid #555; color: #aaa;
-            width: 20px; height: 20px; font-size: 10px; cursor: pointer; border-radius: 2px;
+            width: 18px; height: 18px; font-size: 9px; cursor: pointer; border-radius: 2px;
             display: flex; align-items: center; justify-content: center;
         }
-        .mini-btn:hover { background: #444; }
+        .mini-btn:hover { background: var(--border-light); }
         .mini-btn.del:hover { background: #a00; color: #fff; border-color: #a00; }
         
         /* Hidden file input */
         #imageUpload { display: none; }
 
+        /* Loading Spinner */
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .loading-overlay.active { display: flex; }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid var(--border-color);
+            border-top-color: var(--accent-color);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { color: var(--text-primary); font-size: 1rem; }
+
+        /* Preview Modal */
+        .preview-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .preview-modal.active { display: flex; }
+        .preview-image {
+            max-width: 90%;
+            max-height: 60%;
+            border: 2px solid var(--accent-color);
+        }
+        .preview-actions {
+            display: flex;
+            gap: 15px;
+        }
+        .preview-btn {
+            background: var(--border-light);
+            border: none;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: bold;
+        }
+        .preview-btn.confirm { background: var(--accent-color); }
+        .preview-btn:hover { opacity: 0.9; }
+
+        /* Mobile Responsive */
+        @media (max-width: 1200px) {
+            .workspace { flex-direction: column; }
+            .panel-left, .panel-right { width: 100%; min-width: auto; }
+            .panel-center { min-width: auto; }
+            .category-tabs { overflow-x: auto; flex-wrap: nowrap; }
+        }
+        @media (max-width: 768px) {
+            h1 { font-size: 18px; }
+            .header-bar { padding: 5px 0; }
+            .toolbar { padding: 6px 8px; gap: 5px; }
+            .tool-group { padding-right: 5px; }
+            .canvas-wrapper { max-height: 40vh; }
+        }
+
     </style>
 </head>
 <body>
 
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div class="loading-text">Saving your emblem...</div>
+    </div>
+
+    <!-- Preview Modal -->
+    <div class="preview-modal" id="previewModal">
+        <h2 style="color: var(--text-primary); margin: 0;">Preview Your Emblem</h2>
+        <img id="previewImage" class="preview-image" src="" alt="Preview">
+        <div class="preview-actions">
+            <button class="preview-btn" onclick="closePreview()">✕ Cancel</button>
+            <button class="preview-btn confirm" onclick="confirmSave()">💾 Confirm & Save</button>
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.8rem;">
+            <label><input type="checkbox" id="exportQuality" checked> High Quality Export</label>
+        </div>
+    </div>
+
     <div class="header-bar">
-        <h1>🎮 KillaDome Emblem Editor</h1>
-        <div id="statusBadge" class="status-badge">Guest Mode (Not Linked)</div>
+        <div class="header-left">
+            <h1>🎮 KillaDome Emblem Editor</h1>
+        </div>
+        <div class="header-controls">
+            <button class="theme-toggle" onclick="toggleTheme()" data-tooltip="Toggle Light/Dark Theme">🌓 Theme</button>
+            <button class="action-btn" onclick="saveToLocalStorage()" data-tooltip="Save to Browser">💾 Save Local</button>
+            <button class="action-btn" onclick="loadFromLocalStorage()" data-tooltip="Load from Browser">📂 Load Local</button>
+            <div id="statusBadge" class="status-badge">Guest Mode (Not Linked)</div>
+        </div>
     </div>
 
     <div class="workspace">
@@ -254,49 +530,113 @@
                 <div class="category-tab" data-category="military" onclick="showCategory('military')">Military</div>
                 <div class="category-tab" data-category="symbols" onclick="showCategory('symbols')">Symbols</div>
                 <div class="category-tab" data-category="badges" onclick="showCategory('badges')">Badges</div>
+                <div class="category-tab" data-category="weapons" onclick="showCategory('weapons')">Weapons</div>
+                <div class="category-tab" data-category="animals" onclick="showCategory('animals')">Animals</div>
+                <div class="category-tab" data-category="letters" onclick="showCategory('letters')">Letters</div>
             </div>
             <div class="asset-grid" id="assetGrid"></div>
+            
+            <div class="panel-header">📋 Templates</div>
+            <div class="templates-section">
+                <div class="template-grid">
+                    <button class="template-btn" onclick="loadTemplate('military')">🎖 Military</button>
+                    <button class="template-btn" onclick="loadTemplate('skull')">💀 Skull</button>
+                    <button class="template-btn" onclick="loadTemplate('fire')">🔥 Fire</button>
+                    <button class="template-btn" onclick="loadTemplate('minimal')">⬜ Minimal</button>
+                </div>
+            </div>
         </div>
 
         <div class="panel-center">
-            <div class="canvas-container-outer">
-                <canvas id="c" width="1133" height="207"></canvas>
+            <!-- Zoom Controls -->
+            <div class="zoom-controls">
+                <button class="zoom-btn" onclick="zoomOut()" data-tooltip="Zoom Out">−</button>
+                <span class="zoom-label" id="zoomLevel">100%</span>
+                <button class="zoom-btn" onclick="zoomIn()" data-tooltip="Zoom In">+</button>
+                <button class="zoom-btn" onclick="zoomReset()" data-tooltip="Reset Zoom">⟳</button>
+            </div>
+            
+            <div class="canvas-wrapper">
+                <div class="canvas-container-outer" id="canvasOuter">
+                    <canvas id="c" width="1133" height="207"></canvas>
+                </div>
             </div>
 
+            <!-- Toolbar Row 1: Colors & Transform -->
             <div class="toolbar">
                 <div class="tool-group">
                     <span class="tool-label">Fill</span>
-                    <input type="color" id="colorInput" onchange="updateColor(this.value)" value="#ffffff">
+                    <input type="color" id="colorInput" onchange="updateColor(this.value)" value="#ffffff" data-tooltip="Fill Color">
+                    <button class="action-btn" onclick="openGradient()" data-tooltip="Gradient Fill">🌈</button>
                 </div>
                 <div class="tool-group">
                     <span class="tool-label">Stroke</span>
                     <input type="color" id="strokeInput" onchange="updateStroke(this.value)" value="#000000">
-                    <input type="number" id="strokeWidth" value="0" min="0" max="20" style="width:40px" onchange="updateStrokeWidth(this.value)">
+                    <input type="number" id="strokeWidth" value="0" min="0" max="20" style="width:35px" onchange="updateStrokeWidth(this.value)">
                 </div>
                 <div class="tool-group">
                     <span class="tool-label">Opacity</span>
                     <input type="range" id="opacityInput" min="0" max="100" value="100" onchange="updateOpacity(this.value)">
                 </div>
                 <div class="tool-group">
+                    <span class="tool-label">Shadow</span>
+                    <input type="checkbox" id="shadowEnabled" onchange="toggleShadow()">
+                    <input type="color" id="shadowColor" value="#000000" onchange="updateShadow()">
+                </div>
+                <div class="tool-group">
                     <span class="tool-label">BG</span>
                     <input type="color" id="bgColorInput" onchange="updateBgColor(this.value)" value="#000000">
                 </div>
+            </div>
+            
+            <!-- Toolbar Row 2: Actions -->
+            <div class="toolbar">
                 <div class="tool-group">
-                    <button class="action-btn" onclick="bringForward()">▲</button>
-                    <button class="action-btn" onclick="sendBackward()">▼</button>
-                    <button class="action-btn" onclick="duplicateObject()">⧉</button>
-                    <button class="action-btn" onclick="flipHorizontal()">↔</button>
-                    <button class="action-btn" onclick="flipVertical()">↕</button>
-                    <button class="action-btn" onclick="deleteSelected()">🗑</button>
+                    <button class="action-btn undo-btn" onclick="undo()" data-tooltip="Undo (Ctrl+Z)">↶</button>
+                    <button class="action-btn redo-btn" onclick="redo()" data-tooltip="Redo (Ctrl+Y)">↷</button>
+                </div>
+                <div class="tool-group">
+                    <button class="action-btn" onclick="bringForward()" data-tooltip="Bring Forward">▲</button>
+                    <button class="action-btn" onclick="sendBackward()" data-tooltip="Send Backward">▼</button>
+                    <button class="action-btn" onclick="duplicateObject()" data-tooltip="Duplicate (Ctrl+D)">⧉</button>
+                    <button class="action-btn" onclick="flipHorizontal()" data-tooltip="Flip Horizontal">↔</button>
+                    <button class="action-btn" onclick="flipVertical()" data-tooltip="Flip Vertical">↕</button>
+                    <button class="action-btn" onclick="deleteSelected()" data-tooltip="Delete">🗑</button>
+                </div>
+                <div class="tool-group">
+                    <button class="action-btn" onclick="alignLeft()" data-tooltip="Align Left">⫷</button>
+                    <button class="action-btn" onclick="alignCenter()" data-tooltip="Align Center">⫸</button>
+                    <button class="action-btn" onclick="alignRight()" data-tooltip="Align Right">⫹</button>
+                    <button class="action-btn" onclick="alignTop()" data-tooltip="Align Top">⊤</button>
+                    <button class="action-btn" onclick="alignMiddle()" data-tooltip="Align Middle">⊡</button>
+                    <button class="action-btn" onclick="alignBottom()" data-tooltip="Align Bottom">⊥</button>
+                </div>
+                <div class="tool-group">
+                    <button class="action-btn" onclick="groupObjects()" data-tooltip="Group (Ctrl+G)">⊞</button>
+                    <button class="action-btn" onclick="ungroupObjects()" data-tooltip="Ungroup (Ctrl+Shift+G)">⊟</button>
                 </div>
             </div>
             
+            <!-- Toolbar Row 3: Add Objects -->
             <div class="toolbar">
                 <input type="file" id="imageUpload" accept="image/*" onchange="uploadImage(event)">
-                <button class="action-btn upload-btn" onclick="document.getElementById('imageUpload').click()">📷 Add Image</button>
-                <button class="action-btn" onclick="addText()">✏ Add Text</button>
-                <button class="action-btn" onclick="clearCanvas()">🗑 Clear All</button>
-                <button class="action-btn save-btn" onclick="exportImage()">💾 SAVE CARD</button>
+                <button class="action-btn upload-btn" onclick="document.getElementById('imageUpload').click()" data-tooltip="Upload Image">📷 Image</button>
+                <button class="action-btn" onclick="addText()" data-tooltip="Add Text">✏ Text</button>
+                <div class="tool-group">
+                    <span class="tool-label">Font</span>
+                    <select id="fontSelect" onchange="updateFont()">
+                        <option value="Arial Black">Arial Black</option>
+                        <option value="Impact">Impact</option>
+                        <option value="Roboto">Roboto</option>
+                        <option value="Georgia">Georgia</option>
+                        <option value="Courier New">Courier New</option>
+                        <option value="Comic Sans MS">Comic Sans</option>
+                        <option value="Times New Roman">Times</option>
+                        <option value="Verdana">Verdana</option>
+                    </select>
+                </div>
+                <button class="action-btn" onclick="clearCanvas()" data-tooltip="Clear All">🗑 Clear</button>
+                <button class="action-btn save-btn" onclick="previewAndSave()" data-tooltip="Preview & Save">💾 SAVE</button>
             </div>
         </div>
 
@@ -323,6 +663,21 @@
                     <span class="prop-label">Rotation</span>
                     <input type="number" class="prop-input" id="propAngle" onchange="updateRotation()" min="-360" max="360">
                 </div>
+                
+                <div class="shadow-controls">
+                    <div class="prop-row">
+                        <span class="prop-label">Shadow X</span>
+                        <input type="number" class="prop-input" id="shadowX" value="5" onchange="updateShadow()">
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">Shadow Y</span>
+                        <input type="number" class="prop-input" id="shadowY" value="5" onchange="updateShadow()">
+                    </div>
+                    <div class="prop-row">
+                        <span class="prop-label">Blur</span>
+                        <input type="number" class="prop-input" id="shadowBlur" value="10" onchange="updateShadow()">
+                    </div>
+                </div>
             </div>
             <div class="panel-header">📚 Layers</div>
             <div class="layers-list" id="layersList"></div>
@@ -339,6 +694,12 @@
         
         let currentUserSteamId = null;
         let currentCategory = 'basic';
+        let currentZoom = 1;
+        let historyStack = [];
+        let historyIndex = -1;
+        let historyLocked = false;
+        let pendingPreviewData = null;
+        const MAX_HISTORY = 50;
 
         // ===========================================
         // 1. SMART LINK LOGIC (Runs on Load)
@@ -354,10 +715,11 @@
             }
             showCategory('basic');
             updateLayersPanel();
+            saveState(); // Initial state for undo
         };
 
         // ===========================================
-        // 2. EXPANDED ASSET LIBRARY (60+ shapes)
+        // 2. EXPANDED ASSET LIBRARY (100+ shapes)
         // ===========================================
         const svgCategories = {
             basic: [
@@ -429,6 +791,40 @@
                 { name: "Frame", path: "M32 32v448h448V32H32zm416 416H64V64h384v384zM128 128v256h256V128H128z" },
                 { name: "Crest", path: "M256 32L96 96v160c0 88.4 71.6 160 160 160s160-71.6 160-160V96L256 32z" },
                 { name: "Dogtag 2", path: "M352 32H160c-26.5 0-48 21.5-48 48v352c0 26.5 21.5 48 48 48h192c26.5 0 48-21.5 48-48V80c0-26.5-21.5-48-48-48zM256 416c-17.7 0-32-14.3-32-32s14.3-32 32-32 32 14.3 32 32-14.3 32-32 32zm80-160H176v-32h160v32z" },
+            ],
+            weapons: [
+                { name: "Pistol", path: "M416 32H288l-16 48H160v32h96l-16 48H128v128h32v-96h96l16 48h64l16-48h64V32z" },
+                { name: "Rifle", path: "M512 224H416l-32-64H256l-32 64H0v64h224l32 64h128l32-64h96v-64z" },
+                { name: "Shotgun", path: "M480 192H320v-64H192v64H32v128h160v64h128v-64h160V192z" },
+                { name: "Sniper", path: "M512 240l-128-16-32-64H128l-32 64L0 240v32l96 16 32 64h256l32-64 96-16v-32z" },
+                { name: "SMG", path: "M448 160H320l-32-64H128l-32 64H64v192h32v-128h32l32 64h192l32-64h32v128h32V160z" },
+                { name: "Rocket", path: "M256 0L192 64v64l-64 64v128l64 64v64l64 64 64-64v-64l64-64V192l-64-64V64L256 0z" },
+                { name: "Bow", path: "M256 0C150.8 0 64 86.8 64 192c0 70.7 38.5 132.4 96 165.3V480l96 32 96-32V357.3c57.5-32.9 96-94.6 96-165.3C448 86.8 361.2 0 256 0z" },
+                { name: "Axe", path: "M416 0L256 160l-64-64L64 224l64 64-64 64 64 64 64-64 64 64 128-128-64-64L416 0z" },
+                { name: "Sword", path: "M497.9 142.1l-46-46c-4.7-4.7-12.3-4.7-17 0L256 275.1 114.3 133.4c-37.5-37.5-98.3-37.5-135.8 0-37.5 37.5-37.5 98.3 0 135.8L189.4 480 256 413.4 322.6 480l175.3-175.3c37.5-37.5 37.5-98.3 0-135.8z" },
+                { name: "Bomb", path: "M440.5 88.5l-52 52L348 100l40.5-40.5c25-25 65.5-25 90.5 0l1.5 1.5c25 25 25 65.5 0 90.5L440 192l-40.5-40.5 52-52-11-11zM256 256c-70.7 0-128 57.3-128 128s57.3 128 128 128 128-57.3 128-128-57.3-128-128-128z" },
+            ],
+            animals: [
+                { name: "Wolf", path: "M448 192L384 64 320 0H192L128 64 64 192v128l64 64v64l64 64h128l64-64v-64l64-64V192z" },
+                { name: "Eagle", path: "M256 0L128 128v128l-64 64v128l64 64h64l64-64 64 64h64l64-64V320l-64-64V128L256 0z" },
+                { name: "Bear", path: "M416 160c-35.3 0-64 28.7-64 64v32h-64v-32c0-35.3-28.7-64-64-64H96c-35.3 0-64 28.7-64 64v192c0 35.3 28.7 64 64 64h320c35.3 0 64-28.7 64-64V224c0-35.3-28.7-64-64-64z" },
+                { name: "Lion", path: "M384 64H128L64 128v256l64 64h256l64-64V128L384 64z" },
+                { name: "Snake", path: "M480 128c0-35.3-28.7-64-64-64H256c-35.3 0-64 28.7-64 64v64c0 35.3 28.7 64 64 64h64v64c0 35.3-28.7 64-64 64H96c-35.3 0-64 28.7-64 64v64h192c35.3 0 64-28.7 64-64v-64c0-35.3 28.7-64 64-64h64c35.3 0 64-28.7 64-64V128z" },
+                { name: "Dragon", path: "M496 192L384 80l-64 64-64-64L144 192l-64-64L0 208v112l80 80 64-64 64 64 112-112 64 64 64-64 48 48V192z" },
+                { name: "Shark", path: "M480 256L384 160H256L160 64 64 160l-32 96v96l32 64h128l96 32 96-32h96V256z" },
+                { name: "Raven", path: "M448 128L320 0H192L64 128v128l64 64-64 64v128h128l64-64 64 64h128V320l-64-64 64-64V128z" },
+            ],
+            letters: [
+                { name: "A", path: "M256 32L64 480h96l32-96h128l32 96h96L256 32zm-32 288l32-96 32 96h-64z" },
+                { name: "B", path: "M128 32v448h160c70.7 0 128-57.3 128-128 0-40-18.3-75.6-47-99.1C397.3 229.4 416 194.8 416 160c0-70.7-57.3-128-128-128H128z" },
+                { name: "C", path: "M256 32C132.3 32 32 132.3 32 256s100.3 224 224 224c61.9 0 118.4-25.1 159-65.6l-45.3-45.3C336.1 402.7 298.1 416 256 416c-88.4 0-160-71.6-160-160s71.6-160 160-160c42.1 0 80.1 13.3 113.7 46.9l45.3-45.3C374.4 57.1 317.9 32 256 32z" },
+                { name: "D", path: "M128 32v448h128c123.7 0 224-100.3 224-224S379.7 32 256 32H128z" },
+                { name: "K", path: "M128 32v448h64V304l160 176h96L272 272 448 32h-96L192 192V32h-64z" },
+                { name: "X", path: "M457 32L256 233 55 32H0l201 224L0 480h55l201-201 201 201h55L311 256 512 32h-55z" },
+                { name: "0", path: "M256 32C132.3 32 32 132.3 32 256s100.3 224 224 224 224-100.3 224-224S379.7 32 256 32zm0 384c-88.4 0-160-71.6-160-160s71.6-160 160-160 160 71.6 160 160-71.6 160-160 160z" },
+                { name: "1", path: "M288 32H192l-64 64v32h64V416H128v64h256v-64h-96V32z" },
+                { name: "7", path: "M128 32v64h192L160 480h80l160-384V32H128z" },
+                { name: "#", path: "M176 32l-32 128H64v64h64l-32 128H32v64h48l-32 128h64l32-128h64l-32 128h64l32-128h80v-64h-64l32-128h80v-64h-64l32-128h-64l-32 128h-64l32-128h-64z" },
             ]
         };
 
@@ -454,7 +850,7 @@
             assets.forEach(asset => {
                 const btn = document.createElement('div');
                 btn.className = 'asset-btn';
-                btn.title = asset.name;
+                btn.setAttribute('data-tooltip', asset.name);
                 btn.innerHTML = '<svg viewBox="0 0 512 512"><path d="' + asset.path + '"></path></svg>';
                 btn.onclick = function() { addShape(asset.path, asset.name); };
                 assetGrid.appendChild(btn);
@@ -464,10 +860,276 @@
         canvas.on('selection:created', function() { updateLayersPanel(); syncTools(); });
         canvas.on('selection:updated', function() { updateLayersPanel(); syncTools(); });
         canvas.on('selection:cleared', function() { updateLayersPanel(); clearProperties(); });
-        canvas.on('object:modified', function() { updateLayersPanel(); syncTools(); });
+        canvas.on('object:modified', function() { updateLayersPanel(); syncTools(); saveState(); });
         canvas.on('object:scaling', syncTools);
         canvas.on('object:moving', syncTools);
         canvas.on('object:rotating', syncTools);
+        canvas.on('object:added', function() { if(!historyLocked) saveState(); });
+        canvas.on('object:removed', function() { if(!historyLocked) saveState(); });
+
+        // ===========================================
+        // 4B. UNDO/REDO HISTORY
+        // ===========================================
+        function saveState() {
+            if (historyLocked) return;
+            historyIndex++;
+            if (historyIndex < historyStack.length) {
+                historyStack = historyStack.slice(0, historyIndex);
+            }
+            historyStack.push(JSON.stringify(canvas.toJSON(['layerName'])));
+            if (historyStack.length > MAX_HISTORY) {
+                historyStack.shift();
+                historyIndex--;
+            }
+        }
+        
+        function undo() {
+            if (historyIndex <= 0) return;
+            historyIndex--;
+            historyLocked = true;
+            canvas.loadFromJSON(historyStack[historyIndex], function() {
+                canvas.renderAll();
+                updateLayersPanel();
+                historyLocked = false;
+            });
+        }
+        
+        function redo() {
+            if (historyIndex >= historyStack.length - 1) return;
+            historyIndex++;
+            historyLocked = true;
+            canvas.loadFromJSON(historyStack[historyIndex], function() {
+                canvas.renderAll();
+                updateLayersPanel();
+                historyLocked = false;
+            });
+        }
+
+        // ===========================================
+        // 4C. ZOOM CONTROLS
+        // ===========================================
+        function zoomIn() {
+            currentZoom = Math.min(currentZoom + 0.25, 3);
+            applyZoom();
+        }
+        
+        function zoomOut() {
+            currentZoom = Math.max(currentZoom - 0.25, 0.25);
+            applyZoom();
+        }
+        
+        function zoomReset() {
+            currentZoom = 1;
+            applyZoom();
+        }
+        
+        function applyZoom() {
+            document.getElementById('canvasOuter').style.transform = 'scale(' + currentZoom + ')';
+            document.getElementById('zoomLevel').innerText = Math.round(currentZoom * 100) + '%';
+        }
+
+        // ===========================================
+        // 4D. THEME TOGGLE
+        // ===========================================
+        function toggleTheme() {
+            document.body.classList.toggle('light-theme');
+            localStorage.setItem('theme', document.body.classList.contains('light-theme') ? 'light' : 'dark');
+        }
+        
+        // Load saved theme
+        if (localStorage.getItem('theme') === 'light') {
+            document.body.classList.add('light-theme');
+        }
+
+        // ===========================================
+        // 4E. LOCAL STORAGE (Copy/Paste between sessions)
+        // ===========================================
+        function saveToLocalStorage() {
+            var json = JSON.stringify(canvas.toJSON(['layerName']));
+            localStorage.setItem('emblemData', json);
+            alert('✓ Emblem saved to browser!');
+        }
+        
+        function loadFromLocalStorage() {
+            var json = localStorage.getItem('emblemData');
+            if (!json) {
+                alert('No saved emblem found in browser.');
+                return;
+            }
+            canvas.loadFromJSON(json, function() {
+                canvas.renderAll();
+                updateLayersPanel();
+                alert('✓ Emblem loaded from browser!');
+            });
+        }
+
+        // ===========================================
+        // 4F. TEMPLATES
+        // ===========================================
+        function loadTemplate(templateName) {
+            if (!confirm('Load template? This will replace your current design.')) return;
+            canvas.clear();
+            canvas.backgroundColor = '#000000';
+            
+            var color = '#ce422b';
+            var color2 = '#ffffff';
+            
+            switch(templateName) {
+                case 'military':
+                    addShape(svgCategories.military[0].path, 'Shield'); // Shield
+                    setTimeout(function() {
+                        var obj = canvas.getObjects()[0];
+                        if(obj) { obj.set({fill: color, scaleX: 0.25, scaleY: 0.25}); canvas.renderAll(); }
+                    }, 100);
+                    break;
+                case 'skull':
+                    addShape(svgCategories.military[7].path, 'Skull'); // Skull
+                    setTimeout(function() {
+                        var obj = canvas.getObjects()[0];
+                        if(obj) { obj.set({fill: color2, scaleX: 0.3, scaleY: 0.3}); canvas.renderAll(); }
+                    }, 100);
+                    break;
+                case 'fire':
+                    addShape(svgCategories.symbols[3].path, 'Fire'); // Fire
+                    setTimeout(function() {
+                        var obj = canvas.getObjects()[0];
+                        if(obj) { obj.set({fill: '#ff6600', scaleX: 0.3, scaleY: 0.3}); canvas.renderAll(); }
+                    }, 100);
+                    break;
+                case 'minimal':
+                    addShape(svgCategories.basic[0].path, 'Square'); // Square
+                    setTimeout(function() {
+                        var obj = canvas.getObjects()[0];
+                        if(obj) { obj.set({fill: color2, scaleX: 0.2, scaleY: 0.2}); canvas.renderAll(); }
+                    }, 100);
+                    break;
+            }
+            updateLayersPanel();
+        }
+
+        // ===========================================
+        // 4G. ALIGNMENT TOOLS
+        // ===========================================
+        function alignLeft() {
+            var active = canvas.getActiveObject();
+            if(!active) return;
+            active.set('left', 0);
+            canvas.renderAll();
+            saveState();
+        }
+        function alignCenter() {
+            var active = canvas.getActiveObject();
+            if(!active) return;
+            active.set('left', canvas.width / 2);
+            active.set('originX', 'center');
+            canvas.renderAll();
+            saveState();
+        }
+        function alignRight() {
+            var active = canvas.getActiveObject();
+            if(!active) return;
+            active.set('left', canvas.width - (active.width * active.scaleX));
+            canvas.renderAll();
+            saveState();
+        }
+        function alignTop() {
+            var active = canvas.getActiveObject();
+            if(!active) return;
+            active.set('top', 0);
+            canvas.renderAll();
+            saveState();
+        }
+        function alignMiddle() {
+            var active = canvas.getActiveObject();
+            if(!active) return;
+            active.set('top', canvas.height / 2);
+            active.set('originY', 'center');
+            canvas.renderAll();
+            saveState();
+        }
+        function alignBottom() {
+            var active = canvas.getActiveObject();
+            if(!active) return;
+            active.set('top', canvas.height - (active.height * active.scaleY));
+            canvas.renderAll();
+            saveState();
+        }
+
+        // ===========================================
+        // 4H. GROUPING
+        // ===========================================
+        function groupObjects() {
+            var activeSelection = canvas.getActiveObject();
+            if (!activeSelection || activeSelection.type !== 'activeSelection') {
+                alert('Select multiple objects first (Shift+Click)');
+                return;
+            }
+            activeSelection.toGroup();
+            canvas.getActiveObject().set('layerName', 'Group');
+            canvas.requestRenderAll();
+            updateLayersPanel();
+            saveState();
+        }
+        
+        function ungroupObjects() {
+            var activeObject = canvas.getActiveObject();
+            if (!activeObject || activeObject.type !== 'group') {
+                alert('Select a group first');
+                return;
+            }
+            activeObject.toActiveSelection();
+            canvas.requestRenderAll();
+            updateLayersPanel();
+            saveState();
+        }
+
+        // ===========================================
+        // 4I. SHADOW CONTROLS
+        // ===========================================
+        function toggleShadow() {
+            var active = canvas.getActiveObject();
+            if(!active) return;
+            if (document.getElementById('shadowEnabled').checked) {
+                active.set('shadow', new fabric.Shadow({
+                    color: document.getElementById('shadowColor').value,
+                    blur: parseInt(document.getElementById('shadowBlur').value) || 10,
+                    offsetX: parseInt(document.getElementById('shadowX').value) || 5,
+                    offsetY: parseInt(document.getElementById('shadowY').value) || 5
+                }));
+            } else {
+                active.set('shadow', null);
+            }
+            canvas.renderAll();
+        }
+        
+        function updateShadow() {
+            var active = canvas.getActiveObject();
+            if(!active || !document.getElementById('shadowEnabled').checked) return;
+            active.set('shadow', new fabric.Shadow({
+                color: document.getElementById('shadowColor').value,
+                blur: parseInt(document.getElementById('shadowBlur').value) || 10,
+                offsetX: parseInt(document.getElementById('shadowX').value) || 5,
+                offsetY: parseInt(document.getElementById('shadowY').value) || 5
+            }));
+            canvas.renderAll();
+        }
+
+        // ===========================================
+        // 4J. GRADIENT (placeholder - opens color picker)
+        // ===========================================
+        function openGradient() {
+            alert('Gradient: Select two colors below.\nComing soon: Full gradient editor!');
+        }
+
+        // ===========================================
+        // 4K. FONT UPDATE
+        // ===========================================
+        function updateFont() {
+            var active = canvas.getActiveObject();
+            if(!active || !active.fontFamily) return;
+            active.set('fontFamily', document.getElementById('fontSelect').value);
+            canvas.renderAll();
+        }
 
         // ===========================================
         // 5. SHAPE & OBJECT FUNCTIONS
@@ -499,7 +1161,7 @@
                 originY: 'center',
                 fontSize: 40,
                 fill: document.getElementById('colorInput').value,
-                fontFamily: 'Arial Black',
+                fontFamily: document.getElementById('fontSelect').value,
                 layerName: 'Text'
             });
             canvas.add(text);
@@ -702,27 +1364,56 @@
 
         // Keyboard shortcuts
         document.addEventListener('keydown', function(e) {
-            if(e.target.tagName === 'INPUT') return;
+            if(e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
             if(e.key === 'Delete' || e.key === 'Backspace') { deleteSelected(); }
             if(e.ctrlKey && e.key === 'd') { e.preventDefault(); duplicateObject(); }
+            if(e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
+            if(e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
+            if(e.ctrlKey && e.key === 'g') { e.preventDefault(); groupObjects(); }
+            if(e.ctrlKey && e.shiftKey && e.key === 'G') { e.preventDefault(); ungroupObjects(); }
         });
 
         // ===========================================
-        // 6. EXPORT / BRIDGE LOGIC
+        // 6. PREVIEW & EXPORT / BRIDGE LOGIC
         // ===========================================
-        function exportImage() {
+        function previewAndSave() {
+            canvas.discardActiveObject();
+            canvas.requestRenderAll();
+            var highQuality = document.getElementById('exportQuality').checked;
+            var multiplier = highQuality ? 2 : 1;
+            var dataURL = canvas.toDataURL({ format: 'png', quality: 1, multiplier: multiplier });
+            
+            document.getElementById('previewImage').src = dataURL;
+            document.getElementById('previewModal').classList.add('active');
+            pendingPreviewData = dataURL;
+        }
+        
+        function closePreview() {
+            document.getElementById('previewModal').classList.remove('active');
+            pendingPreviewData = null;
+        }
+        
+        function confirmSave() {
+            closePreview();
+            exportImage(pendingPreviewData);
+        }
+        
+        function exportImage(dataURL) {
             var steamId = currentUserSteamId;
             if (!steamId) {
                 steamId = prompt("No SteamID detected. Please enter your Steam64 ID:");
             }
             if (!steamId) return;
-            canvas.discardActiveObject();
-            canvas.requestRenderAll();
-            var dataURL = canvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
-            var saveBtn = document.querySelector('.save-btn');
-            var originalText = saveBtn.innerText;
-            saveBtn.innerText = "⏳ SENDING...";
-            saveBtn.disabled = true;
+            
+            if (!dataURL) {
+                canvas.discardActiveObject();
+                canvas.requestRenderAll();
+                dataURL = canvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 });
+            }
+            
+            // Show loading overlay
+            document.getElementById('loadingOverlay').classList.add('active');
+            
             fetch(BRIDGE_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -730,18 +1421,13 @@
             })
             .then(function(response) { return response.json(); })
             .then(function(data) {
+                document.getElementById('loadingOverlay').classList.remove('active');
                 alert('✓ Success! Emblem saved for SteamID: ' + steamId);
-                saveBtn.innerText = "✓ SENT!";
-                setTimeout(function() {
-                    saveBtn.innerText = originalText;
-                    saveBtn.disabled = false;
-                }, 2000);
             })
             .catch(function(error) {
+                document.getElementById('loadingOverlay').classList.remove('active');
                 console.error('Error:', error);
                 alert("❌ Connection Failed.\n\nIs the server running?");
-                saveBtn.innerText = originalText;
-                saveBtn.disabled = false;
             });
         }
     </script>
