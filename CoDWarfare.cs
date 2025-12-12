@@ -107,12 +107,19 @@ namespace Oxide.Plugins
             foreach (var p in BasePlayer.activePlayerList) DestroyAllUI(p); 
             StartLobby();
             
-            // PRE-LOAD ICONS: This ensures they aren't blank when the UI tries to draw them
-            timer.Once(5f, () => {
-                Puts("[CoDWarfare] Pre-loading icons into ImageLibrary...");
-                foreach(var weapon in WeaponLadder) ImageLibrary?.Call("AddImage", weapon, weapon, 0UL);
-                ImageLibrary?.Call("AddImage", "syringe.medical", "syringe.medical", 0UL);
-                ImageLibrary?.Call("AddImage", "grenade.f1", "grenade.f1", 0UL);
+            // PRE-LOAD ICONS: Load item icons using ImageLibrary's proper API
+            timer.Once(2f, () => {
+                Puts("[CoDWarfare] Pre-loading item icons into ImageLibrary...");
+                // ImageLibrary automatically handles item icons by shortname when using GetImage
+                // We just need to ensure items are loaded - ImageLibrary should auto-load them
+                // Force load by calling GetImage on each weapon to trigger caching
+                foreach(var weapon in WeaponLadder) 
+                {
+                    ImageLibrary?.Call("GetImage", weapon, 0UL);
+                }
+                ImageLibrary?.Call("GetImage", "syringe.medical", 0UL);
+                ImageLibrary?.Call("GetImage", "grenade.f1", 0UL);
+                Puts("[CoDWarfare] Item icons pre-load complete.");
             });
         }
 
@@ -190,12 +197,58 @@ namespace Oxide.Plugins
         {
             var player = arg.Player();
             if (player == null) return;
-            string url = arg.GetString(0);
+            
+            // Get all args and join them (handles URLs with spaces/special chars)
+            string url = string.Join(" ", arg.Args ?? new string[0]);
+            if (string.IsNullOrEmpty(url)) return;
+            
             var data = GetPlayerData(player.userID);
             data.EquippedCardUrl = url;
             SaveData();
             player.ChatMessage("Card Equipped!");
             OpenStoreUI(player, "owned");
+        }
+
+        // New command: Equip by index for custom emblems (avoids URL parsing issues)
+        [ConsoleCommand("cod.equipemblem")]
+        void ConsoleEquipEmblem(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null) return;
+            
+            int index = arg.GetInt(0, -1);
+            if (index < 0) return;
+            
+            var data = GetPlayerData(player.userID);
+            if (index < data.SavedEmblems.Count)
+            {
+                data.EquippedCardUrl = data.SavedEmblems[index];
+                SaveData();
+                player.ChatMessage("Custom Emblem Equipped!");
+                OpenStoreUI(player, "owned");
+            }
+        }
+
+        // New command: Equip store card by name
+        [ConsoleCommand("cod.equipcard")]
+        void ConsoleEquipCard(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null) return;
+            
+            string cardName = arg.GetString(0);
+            if (string.IsNullOrEmpty(cardName)) return;
+            
+            var data = GetPlayerData(player.userID);
+            var card = config.StoreCards.FirstOrDefault(x => x.Name == cardName);
+            
+            if (card != null && data.UnlockedCards.Contains(cardName))
+            {
+                data.EquippedCardUrl = card.Url;
+                SaveData();
+                player.ChatMessage($"Equipped '{cardName}'!");
+                OpenStoreUI(player, "owned");
+            }
         }
 
         [ConsoleCommand("cod.buycard")]
@@ -288,19 +341,28 @@ namespace Oxide.Plugins
             float startX = 0.05f; float startY = 0.75f; 
             float gapX = 0.02f; float gapY = 0.05f;
 
-            List<CallingCardDefinition> displayItems = new List<CallingCardDefinition>();
-            if (currentTab == "store") displayItems = config.StoreCards;
+            // Build display list with metadata for command generation
+            List<(string Name, string Url, int Price, bool IsCustom, int CustomIndex)> displayItems = new List<(string, string, int, bool, int)>();
+            
+            if (currentTab == "store") 
+            {
+                foreach(var card in config.StoreCards)
+                {
+                    displayItems.Add((card.Name, card.Url, card.Price, false, -1));
+                }
+            }
             else 
             {
-                // Reverse loop for newest uploaded first
+                // Reverse loop for newest uploaded first - track original index
                 for(int k = data.SavedEmblems.Count - 1; k >= 0; k--)
                 {
-                    displayItems.Add(new CallingCardDefinition { Name = $"CUSTOM #{k+1}", Url = data.SavedEmblems[k], Price = 0 });
+                    displayItems.Add(($"CUSTOM #{k+1}", data.SavedEmblems[k], 0, true, k));
                 }
+                // Add unlocked store cards
                 foreach(var name in data.UnlockedCards)
                 {
                     var confItem = config.StoreCards.FirstOrDefault(x => x.Name == name);
-                    if (confItem != null) displayItems.Add(confItem);
+                    if (confItem != null) displayItems.Add((confItem.Name, confItem.Url, confItem.Price, false, -1));
                 }
             }
 
@@ -327,12 +389,31 @@ namespace Oxide.Plugins
                 if (currentTab == "store")
                 {
                     bool unlocked = data.UnlockedCards.Contains(card.Name);
-                    if (!unlocked) { btnColor = "0.8 0.4 0.2 1"; btnText = $"BUY {card.Price}"; cmd = $"cod.buycard \"{card.Name}\""; }
-                    else cmd = $"cod.buycard \"{card.Name}\"";
+                    if (!unlocked) 
+                    { 
+                        btnColor = "0.8 0.4 0.2 1"; 
+                        btnText = $"BUY {card.Price}"; 
+                        cmd = $"cod.buycard {card.Name}"; 
+                    }
+                    else 
+                    {
+                        // Use equipcard command with card name
+                        cmd = $"cod.equipcard {card.Name}";
+                    }
                 }
                 else 
                 {
-                    cmd = $"cod.equipurl \"{card.Url}\"";
+                    // MY CARDS tab - use index-based commands
+                    if (card.IsCustom)
+                    {
+                        // Custom emblem - use index
+                        cmd = $"cod.equipemblem {card.CustomIndex}";
+                    }
+                    else
+                    {
+                        // Store card in owned list - use card name
+                        cmd = $"cod.equipcard {card.Name}";
+                    }
                 }
 
                 container.Add(new CuiButton { Button = { Command = cmd, Color = btnColor }, RectTransform = { AnchorMin = $"{xMin} {yMax - height - 0.05f}", AnchorMax = $"{xMin + width} {yMax - height}" }, Text = { Text = btnText, FontSize = 12, Align = TextAnchor.MiddleCenter } }, UI_Store);
@@ -451,6 +532,15 @@ namespace Oxide.Plugins
              if (CurrentState == GameState.Match) timer.Once(projectile.reloadTime + 0.1f, () => DrawGameHUD(player));
         }
 
+        // Update HUD when player switches active item (weapon switching)
+        void OnPlayerActiveItemChanged(BasePlayer player, Item oldItem, Item newItem)
+        {
+            if (CurrentState == GameState.Match && player != null)
+            {
+                NextTick(() => DrawGameHUD(player));
+            }
+        }
+
         // Ensure HUD updates when items are used (consumables/throwables)
         void OnItemUse(Item item, int amountToUse)
         {
@@ -502,21 +592,56 @@ namespace Oxide.Plugins
             string itemShortname = item?.info.shortname ?? "rifle.ak";
             string displayName = item?.info.displayName.translated ?? "AK47";
             
-            string ammoText = "0 | 0";
+            string ammoText = "-- | --";
             if (item != null)
             {
                 var proj = item.GetHeldEntity() as BaseProjectile;
                 if (proj != null && proj.primaryMagazine != null)
                 {
-                    int clip = proj.primaryMagazine.contents;
-                    // FIX: Use GetAmount for inventory reserve (Compiles correctly now)
-                    int reserve = player.inventory.GetAmount(proj.primaryMagazine.ammoType.itemid);
-                    ammoText = $"{clip} <size=14>| {reserve}</size>";
+                    // Check if this is a hitscan weapon (infinite ammo mode)
+                    if (IsHitscanWeapon(itemShortname))
+                    {
+                        ammoText = "<color=#FFD700>∞</color> <size=14>| ∞</size>";
+                    }
+                    else
+                    {
+                        int clip = proj.primaryMagazine.contents;
+                        int reserve = player.inventory.GetAmount(proj.primaryMagazine.ammoType.itemid);
+                        ammoText = $"{clip} <size=14>| {reserve}</size>";
+                    }
+                }
+                else
+                {
+                    // Non-projectile weapons (melee, bow, etc.)
+                    var baseProjectile = item.GetHeldEntity() as BaseMelee;
+                    if (baseProjectile != null)
+                    {
+                        ammoText = "<color=#FFD700>MELEE</color>";
+                    }
+                    else
+                    {
+                        // Check for bow/crossbow
+                        var bow = item.GetHeldEntity() as BowWeapon;
+                        if (bow != null)
+                        {
+                            int arrows = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.wooden")?.itemid ?? 0);
+                            int arrowsHV = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.hv")?.itemid ?? 0);
+                            ammoText = $"{arrows + arrowsHV} <size=14>arrows</size>";
+                        }
+                    }
                 }
             }
 
-            // 2. Weapon Icon
-            string gunIconId = (string)ImageLibrary?.Call("GetImage", itemShortname);
+            // 2. Weapon Icon - Use item icon from ImageLibrary
+            // ImageLibrary returns image ID for shortname, or we can use GetItemImage
+            string gunIconId = (string)ImageLibrary?.Call("GetImage", itemShortname, 0UL);
+            
+            // Try alternative method if first doesn't work
+            if (string.IsNullOrEmpty(gunIconId))
+            {
+                gunIconId = (string)ImageLibrary?.Call("GetImage", itemShortname);
+            }
+            
             if (!string.IsNullOrEmpty(gunIconId)) 
             {
                 container.Add(new CuiElement 
@@ -527,6 +652,15 @@ namespace Oxide.Plugins
                         new CuiRectTransformComponent { AnchorMin = "0.05 0.2", AnchorMax = "0.35 0.9" } 
                     } 
                 });
+            }
+            else
+            {
+                // Fallback: Display weapon shortname as text if icon not found
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = itemShortname.ToUpper().Replace(".", "\n"), FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.6 0.6 0.6 1" }, 
+                    RectTransform = { AnchorMin = "0.05 0.2", AnchorMax = "0.35 0.9" } 
+                }, UI_HUD);
             }
 
             // 3. Ammo Count
@@ -547,20 +681,34 @@ namespace Oxide.Plugins
             // Syringe (ID 1079279582)
             if (player.inventory.GetAmount(1079279582) > 0) 
             {
-                string tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical");
+                string tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical", 0UL);
+                if (string.IsNullOrEmpty(tacId)) tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical");
+                
                 if (!string.IsNullOrEmpty(tacId))
                 {
                     container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Png = tacId, Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.40 0.05", AnchorMax = "0.50 0.35" } } });
+                }
+                else
+                {
+                    // Fallback: Text indicator for syringe
+                    container.Add(new CuiLabel { Text = { Text = "+", FontSize = 20, Align = TextAnchor.MiddleCenter, Color = "0.2 0.8 0.2 1" }, RectTransform = { AnchorMin = "0.40 0.05", AnchorMax = "0.50 0.35" } }, UI_HUD);
                 }
             }
             
             // Grenade (ID -1308622549)
             if (player.inventory.GetAmount(-1308622549) > 0) 
             {
-                string letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1");
+                string letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1", 0UL);
+                if (string.IsNullOrEmpty(letId)) letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1");
+                
                 if (!string.IsNullOrEmpty(letId))
                 {
                     container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Png = letId, Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.52 0.05", AnchorMax = "0.62 0.35" } } });
+                }
+                else
+                {
+                    // Fallback: Text indicator for grenade
+                    container.Add(new CuiLabel { Text = { Text = "*", FontSize = 20, Align = TextAnchor.MiddleCenter, Color = "0.8 0.4 0.2 1" }, RectTransform = { AnchorMin = "0.52 0.05", AnchorMax = "0.62 0.35" } }, UI_HUD);
                 }
             }
 
