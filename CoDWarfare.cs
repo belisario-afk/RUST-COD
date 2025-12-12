@@ -33,7 +33,8 @@ namespace Oxide.Plugins
         class PluginConfig
         {
             public int MinPlayersToStart = 2;
-            public float LobbyDuration = 20f;
+            public int MaxPlayersInQueue = 10;
+            public float MapVoteDuration = 30f;
             public float KillCardDuration = 5.0f;
             public string ServerBannerUrl = "https://i.imgur.com/3p6fGgD.jpg";
             public string DefaultCardUrl = "https://i.imgur.com/3p6fGgD.jpg"; 
@@ -80,6 +81,8 @@ namespace Oxide.Plugins
         private List<string> AvailableMaps = new List<string> { "Nuketown", "Shipment", "Rust" };
         private Dictionary<ulong, string> MapVotes = new Dictionary<ulong, string>();
         private const string UI_MapVote = "CoD_MapVote";
+        private bool MapVoteActive = false;
+        private Timer mapVoteTimer = null;
         
         private HashSet<ulong> LobbyQueue = new HashSet<ulong>(); 
         private Dictionary<ulong, int> PlayerLevel = new Dictionary<ulong, int>();
@@ -88,6 +91,9 @@ namespace Oxide.Plugins
         // Cached item definitions to avoid repeated lookups
         private ItemDefinition syringeItemDef;
         private ItemDefinition grenadeItemDef;
+        private ItemDefinition arrowWoodenDef;
+        private ItemDefinition arrowHVDef;
+        private ItemDefinition arrowBoneDef;
         
         public class PlayerStoreData
         {
@@ -114,9 +120,12 @@ namespace Oxide.Plugins
             foreach (var p in BasePlayer.activePlayerList) DestroyAllUI(p); 
             StartLobby();
             
-            // Cache item definitions for syringe and grenade
+            // Cache item definitions for tactical, lethal, and arrows
             syringeItemDef = ItemManager.FindItemDefinition("syringe.medical");
             grenadeItemDef = ItemManager.FindItemDefinition("grenade.f1");
+            arrowWoodenDef = ItemManager.FindItemDefinition("arrow.wooden");
+            arrowHVDef = ItemManager.FindItemDefinition("arrow.hv");
+            arrowBoneDef = ItemManager.FindItemDefinition("arrow.bone");
             
             // PRE-LOAD ICONS: Add item icons to ImageLibrary from Rust's CDN
             timer.Once(2f, () => {
@@ -305,14 +314,29 @@ namespace Oxide.Plugins
         [ChatCommand("join")]
         void CmdJoin(BasePlayer player)
         {
-            if (CurrentState == GameState.Match) { player.ChatMessage("Match in progress!"); return; }
-            if (!LobbyQueue.Contains(player.userID))
-            {
-                LobbyQueue.Add(player.userID);
-                player.ChatMessage("Joined Queue! Waiting for players...");
-                DrawLobbyBar(player);
-                CheckLobbyStart();
+            if (CurrentState == GameState.Match) 
+            { 
+                player.ChatMessage("<color=#ce422b>[CoD]</color> Match in progress! Wait for next round."); 
+                return; 
             }
+            
+            if (LobbyQueue.Contains(player.userID))
+            {
+                player.ChatMessage("<color=#ce422b>[CoD]</color> You are already in the queue!");
+                return;
+            }
+            
+            if (LobbyQueue.Count >= config.MaxPlayersInQueue)
+            {
+                player.ChatMessage("<color=#ce422b>[CoD]</color> Queue is full!");
+                return;
+            }
+            
+            LobbyQueue.Add(player.userID);
+            PrintToChat($"<color=#ce422b>[CoD]</color> <color=#FFD700>{player.displayName}</color> joined the queue! ({LobbyQueue.Count}/{config.MaxPlayersInQueue})");
+            DrawLobbyBar(player);
+            UpdateAllLobbyBars();
+            CheckLobbyStart();
         }
 
         [ChatCommand("leave")]
@@ -321,8 +345,18 @@ namespace Oxide.Plugins
             if (LobbyQueue.Contains(player.userID))
             {
                 LobbyQueue.Remove(player.userID);
-                player.ChatMessage("Left Queue.");
+                PrintToChat($"<color=#ce422b>[CoD]</color> <color=#FFD700>{player.displayName}</color> left the queue. ({LobbyQueue.Count}/{config.MaxPlayersInQueue})");
                 DestroyAllUI(player);
+                UpdateAllLobbyBars();
+            }
+        }
+        
+        void UpdateAllLobbyBars()
+        {
+            foreach (var uid in LobbyQueue)
+            {
+                var p = BasePlayer.FindByID(uid);
+                if (p != null) DrawLobbyBar(p);
             }
         }
 
@@ -585,31 +619,64 @@ namespace Oxide.Plugins
             CurrentState = GameState.Lobby;
             LobbyQueue.Clear();
             MapVotes.Clear();
-            PrintToChat("LOBBY IS OPEN! Type /join to enter the queue.");
-            PrintToChat("Type /mapvote to vote for the next map!");
+            MapVoteActive = false;
+            if (mapVoteTimer != null) { mapVoteTimer.Destroy(); mapVoteTimer = null; }
+            PrintToChat("<color=#ce422b>[CoD]</color> <color=#FFD700>LOBBY IS OPEN!</color> Type /join to enter the queue.");
         }
 
         void CheckLobbyStart()
         {
-            if (CurrentState == GameState.Lobby && LobbyQueue.Count >= config.MinPlayersToStart)
+            // Start map vote when minimum players reached or queue is full
+            if (CurrentState == GameState.Lobby && !MapVoteActive)
             {
-                timer.Once(5f, StartMatch);
-                foreach (var uid in LobbyQueue)
+                if (LobbyQueue.Count >= config.MaxPlayersInQueue || LobbyQueue.Count >= config.MinPlayersToStart)
                 {
-                    var p = BasePlayer.FindByID(uid);
-                    if (p != null) p.ChatMessage("<color=green>MATCH STARTING IN 5 SECONDS!</color>");
+                    StartMapVotePhase();
                 }
             }
+        }
+        
+        void StartMapVotePhase()
+        {
+            MapVoteActive = true;
+            PrintToChat($"<color=#ce422b>[CoD]</color> <color=#FFD700>MAP VOTE STARTED!</color> ({config.MapVoteDuration}s) - Vote with /mapvote!");
+            
+            // Show map vote UI to all players in queue
+            foreach (var uid in LobbyQueue)
+            {
+                var p = BasePlayer.FindByID(uid);
+                if (p != null) ShowMapVoteUI(p);
+            }
+            
+            // Update lobby bars
+            UpdateAllLobbyBars();
+            
+            // Start countdown timer
+            mapVoteTimer = timer.Once(config.MapVoteDuration, EndMapVoteAndStart);
+        }
+        
+        void EndMapVoteAndStart()
+        {
+            MapVoteActive = false;
+            
+            // Close map vote UI
+            foreach (var uid in LobbyQueue)
+            {
+                var p = BasePlayer.FindByID(uid);
+                if (p != null) CuiHelper.DestroyUi(p, UI_MapVote);
+            }
+            
+            // Determine winning map and start match
+            CurrentMap = GetWinningMap();
+            PrintToChat($"<color=#ce422b>[CoD]</color> Map selected: <color=#FFD700>{CurrentMap}</color>");
+            PrintToChat("<color=#ce422b>[CoD]</color> <color=green>MATCH STARTING NOW!</color>");
+            MapVotes.Clear();
+            StartMatch();
         }
 
         void StartMatch()
         {
             CurrentState = GameState.Match;
-            
-            // Apply map vote result
-            CurrentMap = GetWinningMap();
-            PrintToChat($"<color=#ce422b>[CoD]</color> Map selected: <color=#FFD700>{CurrentMap}</color>");
-            MapVotes.Clear(); // Reset votes for next round
             
             foreach (var uid in LobbyQueue)
             {
@@ -754,90 +821,62 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0.78 0.02", AnchorMax = "0.99 0.13" } 
             }, LayerMain, UI_HUD);
             
-            // Get the PRIMARY weapon from belt slot 0 (where weapon is always placed)
-            // This ensures we always show the correct weapon icon regardless of what player is holding
-            var weaponItem = player.inventory.containerBelt?.GetSlot(0);
-            var activeItem = player.GetActiveItem();
+            // Get the player's current weapon from weapon ladder (ensures correct weapon based on level)
+            int playerLevel = PlayerLevel.ContainsKey(player.userID) ? PlayerLevel[player.userID] : 0;
+            if (playerLevel >= WeaponLadder.Count) playerLevel = WeaponLadder.Count - 1;
+            string currentWeaponShortname = WeaponLadder[playerLevel];
             
-            // Use weapon item for icon/name, but check active item for ammo display when holding it
-            string weaponShortname = weaponItem?.info.shortname ?? "rifle.ak";
-            string displayName = weaponItem?.info.displayName.translated ?? "AK47";
+            // Get display name from item definition
+            var weaponDef = ItemManager.FindItemDefinition(currentWeaponShortname);
+            string displayName = weaponDef?.displayName.translated ?? currentWeaponShortname.ToUpper();
             
-            // Get the currently held item for ammo calculation (might be weapon, syringe, or grenade)
-            Item itemForAmmo = activeItem;
-            if (itemForAmmo == null || !WeaponLadder.Contains(itemForAmmo.info.shortname))
+            // Calculate ammo based on weapon type
+            string ammoText;
+            
+            // Check if current weapon is hitscan (infinite ammo)
+            if (IsHitscanWeapon(currentWeaponShortname))
             {
-                itemForAmmo = weaponItem; // Fall back to primary weapon
+                ammoText = "<color=#FFD700>∞</color> <size=14>| ∞</size>";
             }
-            
-            string ammoText = "-- | --";
-            if (itemForAmmo != null && WeaponLadder.Contains(itemForAmmo.info.shortname))
+            else if (currentWeaponShortname == "knife.combat")
             {
-                string ammoItemShortname = itemForAmmo.info.shortname;
-                var proj = itemForAmmo.GetHeldEntity() as BaseProjectile;
-                
-                // Check if this is a hitscan weapon (infinite ammo mode)
-                if (IsHitscanWeapon(ammoItemShortname))
+                ammoText = "<color=#FFD700>MELEE</color>";
+            }
+            else if (currentWeaponShortname.Contains("bow") || currentWeaponShortname.Contains("crossbow"))
+            {
+                // Bow/crossbow - show arrow count using cached definitions
+                int arrows = arrowWoodenDef != null ? player.inventory.GetAmount(arrowWoodenDef.itemid) : 0;
+                int arrowsHV = arrowHVDef != null ? player.inventory.GetAmount(arrowHVDef.itemid) : 0;
+                int arrowsBone = arrowBoneDef != null ? player.inventory.GetAmount(arrowBoneDef.itemid) : 0;
+                ammoText = $"{arrows + arrowsHV + arrowsBone} <size=14>arrows</size>";
+            }
+            else
+            {
+                // Regular weapon - try to get from belt slot 0 for accurate ammo
+                ammoText = "-- | --"; // Default
+                var weaponItem = player.inventory.containerBelt?.GetSlot(0);
+                if (weaponItem != null)
                 {
-                    ammoText = "<color=#FFD700>∞</color> <size=14>| ∞</size>";
-                }
-                else if (proj != null && proj.primaryMagazine != null)
-                {
-                    int clip = proj.primaryMagazine.contents;
-                    int reserve = player.inventory.GetAmount(proj.primaryMagazine.ammoType.itemid);
-                    ammoText = $"{clip} <size=14>| {reserve}</size>";
-                }
-                else
-                {
-                    // Non-projectile weapons (melee, bow, etc.)
-                    var melee = itemForAmmo.GetHeldEntity() as BaseMelee;
-                    if (melee != null)
+                    var proj = weaponItem.GetHeldEntity() as BaseProjectile;
+                    if (proj != null && proj.primaryMagazine != null)
                     {
-                        ammoText = "<color=#FFD700>MELEE</color>";
-                    }
-                    else if (ammoItemShortname.Contains("bow") || ammoItemShortname.Contains("crossbow"))
-                    {
-                        // Check for bow/crossbow - they have their own ammo system
-                        int arrows = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.wooden")?.itemid ?? 0);
-                        int arrowsHV = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.hv")?.itemid ?? 0);
-                        int arrowsBone = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.bone")?.itemid ?? 0);
-                        ammoText = $"{arrows + arrowsHV + arrowsBone} <size=14>arrows</size>";
+                        int clip = proj.primaryMagazine.contents;
+                        int reserve = player.inventory.GetAmount(proj.primaryMagazine.ammoType.itemid);
+                        ammoText = $"{clip} <size=14>| {reserve}</size>";
                     }
                 }
             }
 
-            // 2. Weapon Icon - Always show primary weapon from belt slot 0
-            string gunIconId = (string)ImageLibrary?.Call("GetImage", weaponShortname, 0UL);
-            if (string.IsNullOrEmpty(gunIconId))
-            {
-                gunIconId = (string)ImageLibrary?.Call("GetImage", weaponShortname);
-            }
-            
-            if (!string.IsNullOrEmpty(gunIconId)) 
-            {
-                // ImageLibrary has the icon - use PNG
-                container.Add(new CuiElement 
-                { 
-                    Parent = UI_HUD, 
-                    Components = { 
-                        new CuiRawImageComponent { Png = gunIconId }, 
-                        new CuiRectTransformComponent { AnchorMin = "0.05 0.2", AnchorMax = "0.35 0.9" } 
-                    } 
-                });
-            }
-            else
-            {
-                // Fallback: Use direct URL to Rust item icons
-                string iconUrl = $"https://rustlabs.com/img/items180/{weaponShortname}.png";
-                container.Add(new CuiElement 
-                { 
-                    Parent = UI_HUD, 
-                    Components = { 
-                        new CuiRawImageComponent { Url = iconUrl }, 
-                        new CuiRectTransformComponent { AnchorMin = "0.05 0.2", AnchorMax = "0.35 0.9" } 
-                    } 
-                });
-            }
+            // 2. Weapon Icon - Use weapon from ladder (guaranteed correct)
+            string iconUrl = $"https://rustlabs.com/img/items180/{currentWeaponShortname}.png";
+            container.Add(new CuiElement 
+            { 
+                Parent = UI_HUD, 
+                Components = { 
+                    new CuiRawImageComponent { Url = iconUrl }, 
+                    new CuiRectTransformComponent { AnchorMin = "0.05 0.2", AnchorMax = "0.35 0.9" } 
+                } 
+            });
 
             // 3. Ammo Count
             container.Add(new CuiLabel 
@@ -854,45 +893,35 @@ namespace Oxide.Plugins
             }, UI_HUD);
 
             // 5. Tactical Icon (Syringe) - Dynamic based on inventory
-            // Use cached item definition to avoid repeated lookups
             int syringeCount = syringeItemDef != null ? player.inventory.GetAmount(syringeItemDef.itemid) : 0;
             if (syringeCount > 0) 
             {
-                string tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical", 0UL);
-                if (string.IsNullOrEmpty(tacId)) tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical");
-                
-                if (!string.IsNullOrEmpty(tacId))
-                {
-                    container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Png = tacId, Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.40 0.05", AnchorMax = "0.50 0.35" } } });
-                }
-                else
-                {
-                    // Fallback to URL
-                    container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Url = "https://rustlabs.com/img/items180/syringe.medical.png", Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.40 0.05", AnchorMax = "0.50 0.35" } } });
-                }
+                container.Add(new CuiElement 
+                { 
+                    Parent = UI_HUD, 
+                    Components = { 
+                        new CuiRawImageComponent { Url = "https://rustlabs.com/img/items180/syringe.medical.png", Color = "1 1 1 0.8" }, 
+                        new CuiRectTransformComponent { AnchorMin = "0.40 0.05", AnchorMax = "0.50 0.35" } 
+                    } 
+                });
             }
             
             // 6. Lethal Icon (Grenade) - Dynamic based on inventory
-            // Use cached item definition to avoid repeated lookups
             int grenadeCount = grenadeItemDef != null ? player.inventory.GetAmount(grenadeItemDef.itemid) : 0;
             if (grenadeCount > 0) 
             {
-                string letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1", 0UL);
-                if (string.IsNullOrEmpty(letId)) letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1");
-                
-                if (!string.IsNullOrEmpty(letId))
-                {
-                    container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Png = letId, Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.52 0.05", AnchorMax = "0.62 0.35" } } });
-                }
-                else
-                {
-                    // Fallback to URL
-                    container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Url = "https://rustlabs.com/img/items180/grenade.f1.png", Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.52 0.05", AnchorMax = "0.62 0.35" } } });
-                }
+                container.Add(new CuiElement 
+                { 
+                    Parent = UI_HUD, 
+                    Components = { 
+                        new CuiRawImageComponent { Url = "https://rustlabs.com/img/items180/grenade.f1.png", Color = "1 1 1 0.8" }, 
+                        new CuiRectTransformComponent { AnchorMin = "0.52 0.05", AnchorMax = "0.62 0.35" } 
+                    } 
+                });
             }
 
             // 7. Level Counter
-            int level = PlayerLevel.ContainsKey(player.userID) ? PlayerLevel[player.userID] + 1 : 1;
+            int level = playerLevel + 1;
             int max = WeaponLadder.Count;
             container.Add(new CuiLabel 
             { 
@@ -955,8 +984,25 @@ namespace Oxide.Plugins
         {
             CuiHelper.DestroyUi(player, UI_LobbyBar);
             var container = new CuiElementContainer();
-            container.Add(new CuiPanel { Image = { Color = "0 0.5 0 0.8" }, RectTransform = { AnchorMin = "0.3 0.95", AnchorMax = "0.7 0.99" }, CursorEnabled = false }, LayerMain, UI_LobbyBar);
-            container.Add(new CuiLabel { Text = { Text = "IN QUEUE - MOVING FREELY - WAITING FOR PLAYERS...", FontSize = 14, Align = TextAnchor.MiddleCenter }, RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } }, UI_LobbyBar);
+            
+            string status;
+            int playersNeeded = Math.Max(0, config.MinPlayersToStart - LobbyQueue.Count);
+            
+            if (MapVoteActive)
+            {
+                status = $"MAP VOTE IN PROGRESS - {LobbyQueue.Count}/{config.MaxPlayersInQueue} PLAYERS";
+            }
+            else if (LobbyQueue.Count >= config.MinPlayersToStart)
+            {
+                status = $"QUEUE READY ({LobbyQueue.Count}/{config.MaxPlayersInQueue}) - STARTING SOON!";
+            }
+            else
+            {
+                status = $"IN QUEUE ({LobbyQueue.Count}/{config.MaxPlayersInQueue}) - NEED {playersNeeded} MORE";
+            }
+            
+            container.Add(new CuiPanel { Image = { Color = "0 0.5 0 0.8" }, RectTransform = { AnchorMin = "0.25 0.95", AnchorMax = "0.75 0.99" }, CursorEnabled = false }, LayerMain, UI_LobbyBar);
+            container.Add(new CuiLabel { Text = { Text = status, FontSize = 12, Align = TextAnchor.MiddleCenter }, RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } }, UI_LobbyBar);
             CuiHelper.AddUi(player, container);
         }
 
