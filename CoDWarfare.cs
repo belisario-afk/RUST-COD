@@ -1774,6 +1774,74 @@ namespace Oxide.Plugins
             public Dictionary<ulong, PlayerStoreData> Players = new Dictionary<ulong, PlayerStoreData>();
         }
         void SaveData() { Interface.Oxide.DataFileSystem.WriteObject("CoDWarfare", new StoredData { Arenas = ArenaSpawns, Players = StoreData }); }
-        void LoadData() { var data = Interface.Oxide.DataFileSystem.ReadObject<StoredData>("CoDWarfare"); if (data != null) { ArenaSpawns = data.Arenas; StoreData = data.Players; } }
+        void LoadData() 
+        { 
+            var data = Interface.Oxide.DataFileSystem.ReadObject<StoredData>("CoDWarfare"); 
+            if (data != null) 
+            { 
+                ArenaSpawns = data.Arenas ?? new Dictionary<string, List<Vector3>>(); 
+                StoreData = data.Players ?? new Dictionary<ulong, PlayerStoreData>(); 
+            }
+            // Initialize empty map spawn lists if needed
+            foreach (var map in AvailableMaps)
+            {
+                if (!ArenaSpawns.ContainsKey(map))
+                    ArenaSpawns[map] = new List<Vector3>();
+            }
+            Puts($"[CoDWarfare] Loaded spawns - Nuketown: {(ArenaSpawns.ContainsKey("Nuketown") ? ArenaSpawns["Nuketown"].Count : 0)}, Rust: {(ArenaSpawns.ContainsKey("Rust") ? ArenaSpawns["Rust"].Count : 0)}, Shipment: {(ArenaSpawns.ContainsKey("Shipment") ? ArenaSpawns["Shipment"].Count : 0)}");
+        }
+        
+        [ChatCommand("cod.listspawns")]
+        void CmdListSpawns(BasePlayer player, string cmd, string[] args)
+        {
+            if (!player.IsAdmin) return;
+            player.ChatMessage("<color=#ce422b>[CoD]</color> <color=#FFD700>Spawn Points:</color>");
+            foreach (var kvp in ArenaSpawns)
+            {
+                player.ChatMessage($"<color=#00ff00>{kvp.Key}</color>: {kvp.Value.Count} spawns");
+                int i = 1;
+                foreach (var spawn in kvp.Value)
+                {
+                    player.ChatMessage($"  #{i}: {spawn.x:F1}, {spawn.y:F1}, {spawn.z:F1}");
+                    i++;
+                }
+            }
+        }
+        
+        [ChatCommand("cod.clearspawns")]
+        void CmdClearSpawns(BasePlayer player, string cmd, string[] args)
+        {
+            if (!player.IsAdmin || args.Length == 0) return;
+            string map = args[0];
+            if (ArenaSpawns.ContainsKey(map))
+            {
+                ArenaSpawns[map].Clear();
+                SaveData();
+                player.ChatMessage($"<color=#ce422b>[CoD]</color> Cleared all spawns for {map}");
+            }
+        }
+        
+        [ChatCommand("cod.gotospawn")]
+        void CmdGotoSpawn(BasePlayer player, string cmd, string[] args)
+        {
+            if (!player.IsAdmin || args.Length < 2) 
+            {
+                player.ChatMessage("<color=#ce422b>[CoD]</color> Usage: /cod.gotospawn <mapname> <index>");
+                return;
+            }
+            string map = args[0];
+            int index = 0;
+            if (!int.TryParse(args[1], out index)) return;
+            
+            if (ArenaSpawns.ContainsKey(map) && index > 0 && index <= ArenaSpawns[map].Count)
+            {
+                TeleportTo(player, ArenaSpawns[map][index - 1]);
+                player.ChatMessage($"<color=#ce422b>[CoD]</color> Teleported to {map} spawn #{index}");
+            }
+            else
+            {
+                player.ChatMessage($"<color=#ce422b>[CoD]</color> Invalid map or spawn index");
+            }
+        }
     }
 }
