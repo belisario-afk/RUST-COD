@@ -77,6 +77,9 @@ namespace Oxide.Plugins
         
         private Dictionary<string, List<Vector3>> ArenaSpawns = new Dictionary<string, List<Vector3>>();
         private string CurrentMap = "Nuketown"; 
+        private List<string> AvailableMaps = new List<string> { "Nuketown", "Shipment", "Rust" };
+        private Dictionary<ulong, string> MapVotes = new Dictionary<ulong, string>();
+        private const string UI_MapVote = "CoD_MapVote";
         
         private HashSet<ulong> LobbyQueue = new HashSet<ulong>(); 
         private Dictionary<ulong, int> PlayerLevel = new Dictionary<ulong, int>();
@@ -107,19 +110,28 @@ namespace Oxide.Plugins
             foreach (var p in BasePlayer.activePlayerList) DestroyAllUI(p); 
             StartLobby();
             
-            // PRE-LOAD ICONS: Load item icons using ImageLibrary's proper API
+            // PRE-LOAD ICONS: Add item icons to ImageLibrary from Rust's CDN
             timer.Once(2f, () => {
                 Puts("[CoDWarfare] Pre-loading item icons into ImageLibrary...");
-                // ImageLibrary automatically handles item icons by shortname when using GetImage
-                // We just need to ensure items are loaded - ImageLibrary should auto-load them
-                // Force load by calling GetImage on each weapon to trigger caching
+                
+                // Load weapon icons using item definition to get proper icon URL
                 foreach(var weapon in WeaponLadder) 
                 {
-                    ImageLibrary?.Call("GetImage", weapon, 0UL);
+                    var itemDef = ItemManager.FindItemDefinition(weapon);
+                    if (itemDef != null)
+                    {
+                        // Use Rust's CDN URL pattern for item icons
+                        string iconUrl = $"https://rustlabs.com/img/items180/{weapon}.png";
+                        ImageLibrary?.Call("AddImage", iconUrl, weapon, 0UL);
+                        Puts($"[CoDWarfare] Loading icon for {weapon}");
+                    }
                 }
-                ImageLibrary?.Call("GetImage", "syringe.medical", 0UL);
-                ImageLibrary?.Call("GetImage", "grenade.f1", 0UL);
-                Puts("[CoDWarfare] Item icons pre-load complete.");
+                
+                // Load tactical and lethal icons
+                ImageLibrary?.Call("AddImage", "https://rustlabs.com/img/items180/syringe.medical.png", "syringe.medical", 0UL);
+                ImageLibrary?.Call("AddImage", "https://rustlabs.com/img/items180/grenade.f1.png", "grenade.f1", 0UL);
+                
+                Puts("[CoDWarfare] Item icons pre-load complete. Icons will be available after download.");
             });
         }
 
@@ -319,6 +331,143 @@ namespace Oxide.Plugins
             } 
         }
 
+        // --- MAP VOTE SYSTEM ---
+        [ChatCommand("mapvote")]
+        void CmdMapVote(BasePlayer player)
+        {
+            if (CurrentState != GameState.Lobby)
+            {
+                player.ChatMessage("Map voting is only available in the lobby!");
+                return;
+            }
+            ShowMapVoteUI(player);
+        }
+
+        [ConsoleCommand("cod.votemap")]
+        void ConsoleVoteMap(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null) return;
+            
+            string mapName = arg.GetString(0);
+            if (string.IsNullOrEmpty(mapName)) return;
+            
+            if (!AvailableMaps.Contains(mapName))
+            {
+                player.ChatMessage($"Invalid map: {mapName}");
+                return;
+            }
+            
+            MapVotes[player.userID] = mapName;
+            player.ChatMessage($"<color=#ce422b>[CoD]</color> You voted for <color=#FFD700>{mapName}</color>!");
+            
+            // Refresh UI for all players in lobby
+            foreach (var uid in LobbyQueue)
+            {
+                var p = BasePlayer.FindByID(uid);
+                if (p != null) ShowMapVoteUI(p);
+            }
+        }
+
+        [ConsoleCommand("cod.closemapvote")]
+        void ConsoleCloseMapVote(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player != null) CuiHelper.DestroyUi(player, UI_MapVote);
+        }
+
+        void ShowMapVoteUI(BasePlayer player)
+        {
+            CuiHelper.DestroyUi(player, UI_MapVote);
+            var container = new CuiElementContainer();
+
+            // Main panel
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.1 0.1 0.1 0.95" }, 
+                RectTransform = { AnchorMin = "0.3 0.3", AnchorMax = "0.7 0.7" }, 
+                CursorEnabled = true 
+            }, LayerMain, UI_MapVote);
+
+            // Title
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "MAP VOTE", FontSize = 24, Align = TextAnchor.MiddleCenter, Color = "1 0.8 0 1" }, 
+                RectTransform = { AnchorMin = "0 0.85", AnchorMax = "1 0.98" } 
+            }, UI_MapVote);
+
+            // Close button
+            container.Add(new CuiButton 
+            { 
+                Button = { Command = "cod.closemapvote", Color = "0.8 0.2 0.2 1" }, 
+                RectTransform = { AnchorMin = "0.9 0.88", AnchorMax = "0.98 0.98" }, 
+                Text = { Text = "X", FontSize = 16, Align = TextAnchor.MiddleCenter } 
+            }, UI_MapVote);
+
+            // Count votes for each map
+            Dictionary<string, int> voteCounts = new Dictionary<string, int>();
+            foreach (var map in AvailableMaps) voteCounts[map] = 0;
+            foreach (var vote in MapVotes.Values)
+            {
+                if (voteCounts.ContainsKey(vote)) voteCounts[vote]++;
+            }
+
+            // Display maps
+            float buttonWidth = 0.28f;
+            float startX = 0.05f;
+            float gap = 0.05f;
+            
+            for (int i = 0; i < AvailableMaps.Count && i < 3; i++)
+            {
+                string mapName = AvailableMaps[i];
+                float xMin = startX + (i * (buttonWidth + gap));
+                int votes = voteCounts[mapName];
+                bool hasVoted = MapVotes.ContainsKey(player.userID) && MapVotes[player.userID] == mapName;
+                string btnColor = hasVoted ? "0.2 0.8 0.2 1" : "0.4 0.4 0.4 1";
+                
+                // Map name button
+                container.Add(new CuiButton 
+                { 
+                    Button = { Command = $"cod.votemap {mapName}", Color = btnColor }, 
+                    RectTransform = { AnchorMin = $"{xMin} 0.4", AnchorMax = $"{xMin + buttonWidth} 0.75" }, 
+                    Text = { Text = $"{mapName.ToUpper()}\n\n<size=14>Votes: {votes}</size>", FontSize = 16, Align = TextAnchor.MiddleCenter } 
+                }, UI_MapVote);
+            }
+
+            // Current map indicator
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = $"Current Map: <color=#FFD700>{CurrentMap}</color>", FontSize = 14, Align = TextAnchor.MiddleCenter }, 
+                RectTransform = { AnchorMin = "0 0.1", AnchorMax = "1 0.25" } 
+            }, UI_MapVote);
+
+            CuiHelper.AddUi(player, container);
+        }
+
+        string GetWinningMap()
+        {
+            if (MapVotes.Count == 0) return CurrentMap;
+            
+            Dictionary<string, int> voteCounts = new Dictionary<string, int>();
+            foreach (var map in AvailableMaps) voteCounts[map] = 0;
+            foreach (var vote in MapVotes.Values)
+            {
+                if (voteCounts.ContainsKey(vote)) voteCounts[vote]++;
+            }
+            
+            string winner = CurrentMap;
+            int maxVotes = 0;
+            foreach (var kvp in voteCounts)
+            {
+                if (kvp.Value > maxVotes)
+                {
+                    maxVotes = kvp.Value;
+                    winner = kvp.Key;
+                }
+            }
+            return winner;
+        }
+
         // --- NEW STORE UI ---
         void OpenStoreUI(BasePlayer player, string currentTab)
         {
@@ -427,7 +576,9 @@ namespace Oxide.Plugins
         {
             CurrentState = GameState.Lobby;
             LobbyQueue.Clear();
+            MapVotes.Clear();
             PrintToChat("LOBBY IS OPEN! Type /join to enter the queue.");
+            PrintToChat("Type /mapvote to vote for the next map!");
         }
 
         void CheckLobbyStart()
@@ -446,12 +597,19 @@ namespace Oxide.Plugins
         void StartMatch()
         {
             CurrentState = GameState.Match;
+            
+            // Apply map vote result
+            CurrentMap = GetWinningMap();
+            PrintToChat($"<color=#ce422b>[CoD]</color> Map selected: <color=#FFD700>{CurrentMap}</color>");
+            MapVotes.Clear(); // Reset votes for next round
+            
             foreach (var uid in LobbyQueue)
             {
                 var p = BasePlayer.FindByID(uid);
                 if (p != null)
                 {
                     CuiHelper.DestroyUi(p, UI_LobbyBar);
+                    CuiHelper.DestroyUi(p, UI_MapVote);
                     PlayerLevel[p.userID] = 0;
                     RespawnPlayer(p);
                 }
@@ -613,30 +771,28 @@ namespace Oxide.Plugins
                 else
                 {
                     // Non-projectile weapons (melee, bow, etc.)
-                    var baseProjectile = item.GetHeldEntity() as BaseMelee;
-                    if (baseProjectile != null)
+                    var melee = item.GetHeldEntity() as BaseMelee;
+                    if (melee != null)
                     {
                         ammoText = "<color=#FFD700>MELEE</color>";
                     }
                     else
                     {
-                        // Check for bow/crossbow
-                        var bow = item.GetHeldEntity() as BowWeapon;
-                        if (bow != null)
+                        // Check for bow/crossbow - they have their own ammo system
+                        var bow = item.GetHeldEntity() as BaseProjectile;
+                        if (bow != null && (itemShortname.Contains("bow") || itemShortname.Contains("crossbow")))
                         {
                             int arrows = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.wooden")?.itemid ?? 0);
                             int arrowsHV = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.hv")?.itemid ?? 0);
-                            ammoText = $"{arrows + arrowsHV} <size=14>arrows</size>";
+                            int arrowsBone = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.bone")?.itemid ?? 0);
+                            ammoText = $"{arrows + arrowsHV + arrowsBone} <size=14>arrows</size>";
                         }
                     }
                 }
             }
 
-            // 2. Weapon Icon - Use item icon from ImageLibrary
-            // ImageLibrary returns image ID for shortname, or we can use GetItemImage
+            // 2. Weapon Icon - Try ImageLibrary first, then fallback to URL
             string gunIconId = (string)ImageLibrary?.Call("GetImage", itemShortname, 0UL);
-            
-            // Try alternative method if first doesn't work
             if (string.IsNullOrEmpty(gunIconId))
             {
                 gunIconId = (string)ImageLibrary?.Call("GetImage", itemShortname);
@@ -644,6 +800,7 @@ namespace Oxide.Plugins
             
             if (!string.IsNullOrEmpty(gunIconId)) 
             {
+                // ImageLibrary has the icon - use PNG
                 container.Add(new CuiElement 
                 { 
                     Parent = UI_HUD, 
@@ -655,12 +812,16 @@ namespace Oxide.Plugins
             }
             else
             {
-                // Fallback: Display weapon shortname as text if icon not found
-                container.Add(new CuiLabel 
+                // Fallback: Use direct URL to Rust item icons
+                string iconUrl = $"https://rustlabs.com/img/items180/{itemShortname}.png";
+                container.Add(new CuiElement 
                 { 
-                    Text = { Text = itemShortname.ToUpper().Replace(".", "\n"), FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.6 0.6 0.6 1" }, 
-                    RectTransform = { AnchorMin = "0.05 0.2", AnchorMax = "0.35 0.9" } 
-                }, UI_HUD);
+                    Parent = UI_HUD, 
+                    Components = { 
+                        new CuiRawImageComponent { Url = iconUrl }, 
+                        new CuiRectTransformComponent { AnchorMin = "0.05 0.2", AnchorMax = "0.35 0.9" } 
+                    } 
+                });
             }
 
             // 3. Ammo Count
@@ -677,8 +838,7 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0.4 0.35", AnchorMax = "0.95 0.5" } 
             }, UI_HUD);
 
-            // 5. Tactical & Lethal Icons (Dynamic)
-            // Syringe (ID 1079279582)
+            // 5. Tactical Icon (Syringe) - Dynamic based on inventory
             if (player.inventory.GetAmount(1079279582) > 0) 
             {
                 string tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical", 0UL);
@@ -690,12 +850,12 @@ namespace Oxide.Plugins
                 }
                 else
                 {
-                    // Fallback: Text indicator for syringe
-                    container.Add(new CuiLabel { Text = { Text = "+", FontSize = 20, Align = TextAnchor.MiddleCenter, Color = "0.2 0.8 0.2 1" }, RectTransform = { AnchorMin = "0.40 0.05", AnchorMax = "0.50 0.35" } }, UI_HUD);
+                    // Fallback to URL
+                    container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Url = "https://rustlabs.com/img/items180/syringe.medical.png", Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.40 0.05", AnchorMax = "0.50 0.35" } } });
                 }
             }
             
-            // Grenade (ID -1308622549)
+            // 6. Lethal Icon (Grenade) - Dynamic based on inventory
             if (player.inventory.GetAmount(-1308622549) > 0) 
             {
                 string letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1", 0UL);
@@ -707,12 +867,12 @@ namespace Oxide.Plugins
                 }
                 else
                 {
-                    // Fallback: Text indicator for grenade
-                    container.Add(new CuiLabel { Text = { Text = "*", FontSize = 20, Align = TextAnchor.MiddleCenter, Color = "0.8 0.4 0.2 1" }, RectTransform = { AnchorMin = "0.52 0.05", AnchorMax = "0.62 0.35" } }, UI_HUD);
+                    // Fallback to URL
+                    container.Add(new CuiElement { Parent = UI_HUD, Components = { new CuiRawImageComponent { Url = "https://rustlabs.com/img/items180/grenade.f1.png", Color = "1 1 1 0.8" }, new CuiRectTransformComponent { AnchorMin = "0.52 0.05", AnchorMax = "0.62 0.35" } } });
                 }
             }
 
-            // Level Counter
+            // 7. Level Counter
             int level = PlayerLevel.ContainsKey(player.userID) ? PlayerLevel[player.userID] + 1 : 1;
             int max = WeaponLadder.Count;
             container.Add(new CuiLabel 
@@ -760,6 +920,7 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, UI_Health);
             CuiHelper.DestroyUi(player, HitmarkerUI);
             CuiHelper.DestroyUi(player, UI_Lobby);
+            CuiHelper.DestroyUi(player, UI_MapVote);
         }
 
         void DrawCenterBanner(BasePlayer player)
