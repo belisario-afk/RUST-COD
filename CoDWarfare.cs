@@ -1730,31 +1730,20 @@ namespace Oxide.Plugins
                     
                     string weaponShortname = gun.GetItem().info.shortname;
                     
-                    // Get the muzzle bone transform for proper positioning
-                    Transform muzzleTransform = gun.MuzzlePoint;
-                    uint muzzleBone = StringPool.Get("muzzle_flash");
-                    
-                    // Per-weapon muzzle flash - parented to gun's muzzle bone
+                    // Per-weapon muzzle flash - properly parented to gun's muzzle_flash bone
                     string muzzleEffect = WeaponMuzzleFlash.ContainsKey(weaponShortname) 
                         ? WeaponMuzzleFlash[weaponShortname] 
                         : "assets/bundled/prefabs/fx/muzzleflash/assaultrifle.prefab";
                     
-                    if (muzzleTransform != null)
-                    {
-                        // Use muzzle point position and rotation from the gun
-                        Effect.server.Run(muzzleEffect, muzzleTransform.position, muzzleTransform.forward, null, true);
-                    }
-                    else
-                    {
-                        // Fallback: parent to gun entity with muzzle bone
-                        Effect.server.Run(muzzleEffect, gun, muzzleBone, Vector3.zero, Vector3.forward);
-                    }
+                    // Create effect and parent it to the gun entity at the muzzle_flash bone
+                    var effect = new Effect(muzzleEffect, gun, StringPool.Get("muzzle_flash"), Vector3.zero, Vector3.forward);
+                    EffectNetwork.Send(effect);
                     
-                    // Per-weapon gun fire sound - parented to gun's muzzle position
+                    // Per-weapon gun fire sound - also parented to gun's muzzle bone
                     if (WeaponFireSound.ContainsKey(weaponShortname))
                     {
-                        Vector3 soundPos = muzzleTransform != null ? muzzleTransform.position : gun.transform.position;
-                        Effect.server.Run(WeaponFireSound[weaponShortname], soundPos);
+                        var soundEffect = new Effect(WeaponFireSound[weaponShortname], gun, StringPool.Get("muzzle_flash"), Vector3.zero, Vector3.forward);
+                        EffectNetwork.Send(soundEffect);
                     }
                     
                     Ray ray = player.eyes.HeadRay();
