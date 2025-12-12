@@ -142,6 +142,30 @@ namespace Oxide.Plugins
             "shotgun.pump", "shotgun.spas12", "pistol.python", "pistol.revolver",
             "crossbow", "bow.compound", "pistol.eoka", "knife.combat"
         };
+        
+        // Per-weapon muzzle flash effects (excludes shotguns, bows, eoka - they use native effects)
+        private Dictionary<string, string> WeaponMuzzleFlash = new Dictionary<string, string>
+        {
+            {"lmg.m249", "assets/bundled/prefabs/fx/muzzleflash/lmg.prefab"},
+            {"rifle.ak", "assets/bundled/prefabs/fx/muzzleflash/assaultrifle.prefab"},
+            {"rifle.lr300", "assets/bundled/prefabs/fx/muzzleflash/assaultrifle.prefab"},
+            {"smg.mp5", "assets/bundled/prefabs/fx/muzzleflash/smg.prefab"},
+            {"smg.thompson", "assets/bundled/prefabs/fx/muzzleflash/smg.prefab"},
+            {"pistol.python", "assets/bundled/prefabs/fx/muzzleflash/pistol.prefab"},
+            {"pistol.revolver", "assets/bundled/prefabs/fx/muzzleflash/pistol.prefab"}
+        };
+        
+        // Per-weapon gun fire sounds (excludes shotguns, bows, eoka - they use native sounds)
+        private Dictionary<string, string> WeaponFireSound = new Dictionary<string, string>
+        {
+            {"lmg.m249", "assets/prefabs/weapons/m249/effects/attack.prefab"},
+            {"rifle.ak", "assets/prefabs/weapons/ak47u/effects/attack.prefab"},
+            {"rifle.lr300", "assets/prefabs/weapons/lr300/effects/attack.prefab"},
+            {"smg.mp5", "assets/prefabs/weapons/mp5/effects/attack.prefab"},
+            {"smg.thompson", "assets/prefabs/weapons/thompson/effects/attack.prefab"},
+            {"pistol.python", "assets/prefabs/weapons/python/effects/attack.prefab"},
+            {"pistol.revolver", "assets/prefabs/weapons/revolver/effects/attack.prefab"}
+        };
 
         // --- HOOKS ---
 
@@ -1703,7 +1727,21 @@ namespace Oxide.Plugins
                 {
                     if (nextFireTime.ContainsKey(player.userID) && Time.time < nextFireTime[player.userID]) return;
                     nextFireTime[player.userID] = Time.time + gun.repeatDelay;
-                    Effect.server.Run("assets/bundled/prefabs/fx/muzzleflash/assaultrifle.prefab", gun, StringPool.Get("muzzle"), Vector3.zero, Vector3.forward);
+                    
+                    string weaponShortname = gun.GetItem().info.shortname;
+                    
+                    // Per-weapon muzzle flash
+                    string muzzleEffect = WeaponMuzzleFlash.ContainsKey(weaponShortname) 
+                        ? WeaponMuzzleFlash[weaponShortname] 
+                        : "assets/bundled/prefabs/fx/muzzleflash/assaultrifle.prefab";
+                    Effect.server.Run(muzzleEffect, gun, StringPool.Get("muzzle"), Vector3.zero, Vector3.forward);
+                    
+                    // Per-weapon gun fire sound
+                    if (WeaponFireSound.ContainsKey(weaponShortname))
+                    {
+                        Effect.server.Run(WeaponFireSound[weaponShortname], player.transform.position);
+                    }
+                    
                     Ray ray = player.eyes.HeadRay();
                     RaycastHit hit;
                     if (Physics.Raycast(ray, out hit, HITSCAN_RANGE, LayerMask.GetMask("Construction", "Terrain", "Player (Server)", "World")))
