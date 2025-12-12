@@ -85,6 +85,10 @@ namespace Oxide.Plugins
         private Dictionary<ulong, int> PlayerLevel = new Dictionary<ulong, int>();
         private Dictionary<ulong, float> nextFireTime = new Dictionary<ulong, float>();
         
+        // Cached item definitions to avoid repeated lookups
+        private ItemDefinition syringeItemDef;
+        private ItemDefinition grenadeItemDef;
+        
         public class PlayerStoreData
         {
             public string EquippedCardUrl;
@@ -109,6 +113,10 @@ namespace Oxide.Plugins
             LoadData();
             foreach (var p in BasePlayer.activePlayerList) DestroyAllUI(p); 
             StartLobby();
+            
+            // Cache item definitions for syringe and grenade
+            syringeItemDef = ItemManager.FindItemDefinition("syringe.medical");
+            grenadeItemDef = ItemManager.FindItemDefinition("grenade.f1");
             
             // PRE-LOAD ICONS: Add item icons to ImageLibrary from Rust's CDN
             timer.Once(2f, () => {
@@ -746,56 +754,63 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0.78 0.02", AnchorMax = "0.99 0.13" } 
             }, LayerMain, UI_HUD);
             
-            var item = player.GetActiveItem();
-            string itemShortname = item?.info.shortname ?? "rifle.ak";
-            string displayName = item?.info.displayName.translated ?? "AK47";
+            // Get the PRIMARY weapon from belt slot 0 (where weapon is always placed)
+            // This ensures we always show the correct weapon icon regardless of what player is holding
+            var weaponItem = player.inventory.containerBelt?.GetSlot(0);
+            var activeItem = player.GetActiveItem();
+            
+            // Use weapon item for icon/name, but check active item for ammo display when holding it
+            string weaponShortname = weaponItem?.info.shortname ?? "rifle.ak";
+            string displayName = weaponItem?.info.displayName.translated ?? "AK47";
+            
+            // Get the currently held item for ammo calculation (might be weapon, syringe, or grenade)
+            Item itemForAmmo = activeItem;
+            if (itemForAmmo == null || !WeaponLadder.Contains(itemForAmmo.info.shortname))
+            {
+                itemForAmmo = weaponItem; // Fall back to primary weapon
+            }
             
             string ammoText = "-- | --";
-            if (item != null)
+            if (itemForAmmo != null && WeaponLadder.Contains(itemForAmmo.info.shortname))
             {
-                var proj = item.GetHeldEntity() as BaseProjectile;
-                if (proj != null && proj.primaryMagazine != null)
+                string ammoItemShortname = itemForAmmo.info.shortname;
+                var proj = itemForAmmo.GetHeldEntity() as BaseProjectile;
+                
+                // Check if this is a hitscan weapon (infinite ammo mode)
+                if (IsHitscanWeapon(ammoItemShortname))
                 {
-                    // Check if this is a hitscan weapon (infinite ammo mode)
-                    if (IsHitscanWeapon(itemShortname))
-                    {
-                        ammoText = "<color=#FFD700>∞</color> <size=14>| ∞</size>";
-                    }
-                    else
-                    {
-                        int clip = proj.primaryMagazine.contents;
-                        int reserve = player.inventory.GetAmount(proj.primaryMagazine.ammoType.itemid);
-                        ammoText = $"{clip} <size=14>| {reserve}</size>";
-                    }
+                    ammoText = "<color=#FFD700>∞</color> <size=14>| ∞</size>";
+                }
+                else if (proj != null && proj.primaryMagazine != null)
+                {
+                    int clip = proj.primaryMagazine.contents;
+                    int reserve = player.inventory.GetAmount(proj.primaryMagazine.ammoType.itemid);
+                    ammoText = $"{clip} <size=14>| {reserve}</size>";
                 }
                 else
                 {
                     // Non-projectile weapons (melee, bow, etc.)
-                    var melee = item.GetHeldEntity() as BaseMelee;
+                    var melee = itemForAmmo.GetHeldEntity() as BaseMelee;
                     if (melee != null)
                     {
                         ammoText = "<color=#FFD700>MELEE</color>";
                     }
-                    else
+                    else if (ammoItemShortname.Contains("bow") || ammoItemShortname.Contains("crossbow"))
                     {
                         // Check for bow/crossbow - they have their own ammo system
-                        var bow = item.GetHeldEntity() as BaseProjectile;
-                        if (bow != null && (itemShortname.Contains("bow") || itemShortname.Contains("crossbow")))
-                        {
-                            int arrows = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.wooden")?.itemid ?? 0);
-                            int arrowsHV = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.hv")?.itemid ?? 0);
-                            int arrowsBone = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.bone")?.itemid ?? 0);
-                            ammoText = $"{arrows + arrowsHV + arrowsBone} <size=14>arrows</size>";
-                        }
+                        int arrows = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.wooden")?.itemid ?? 0);
+                        int arrowsHV = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.hv")?.itemid ?? 0);
+                        int arrowsBone = player.inventory.GetAmount(ItemManager.FindItemDefinition("arrow.bone")?.itemid ?? 0);
+                        ammoText = $"{arrows + arrowsHV + arrowsBone} <size=14>arrows</size>";
                     }
                 }
             }
 
-            // 2. Weapon Icon - Try ImageLibrary first, then fallback to URL
-            string gunIconId = (string)ImageLibrary?.Call("GetImage", itemShortname, 0UL);
+            // 2. Weapon Icon - Always show primary weapon from belt slot 0
+            string gunIconId = (string)ImageLibrary?.Call("GetImage", weaponShortname, 0UL);
             if (string.IsNullOrEmpty(gunIconId))
             {
-                gunIconId = (string)ImageLibrary?.Call("GetImage", itemShortname);
+                gunIconId = (string)ImageLibrary?.Call("GetImage", weaponShortname);
             }
             
             if (!string.IsNullOrEmpty(gunIconId)) 
@@ -813,7 +828,7 @@ namespace Oxide.Plugins
             else
             {
                 // Fallback: Use direct URL to Rust item icons
-                string iconUrl = $"https://rustlabs.com/img/items180/{itemShortname}.png";
+                string iconUrl = $"https://rustlabs.com/img/items180/{weaponShortname}.png";
                 container.Add(new CuiElement 
                 { 
                     Parent = UI_HUD, 
@@ -839,7 +854,9 @@ namespace Oxide.Plugins
             }, UI_HUD);
 
             // 5. Tactical Icon (Syringe) - Dynamic based on inventory
-            if (player.inventory.GetAmount(1079279582) > 0) 
+            // Use cached item definition to avoid repeated lookups
+            int syringeCount = syringeItemDef != null ? player.inventory.GetAmount(syringeItemDef.itemid) : 0;
+            if (syringeCount > 0) 
             {
                 string tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical", 0UL);
                 if (string.IsNullOrEmpty(tacId)) tacId = (string)ImageLibrary?.Call("GetImage", "syringe.medical");
@@ -856,7 +873,9 @@ namespace Oxide.Plugins
             }
             
             // 6. Lethal Icon (Grenade) - Dynamic based on inventory
-            if (player.inventory.GetAmount(-1308622549) > 0) 
+            // Use cached item definition to avoid repeated lookups
+            int grenadeCount = grenadeItemDef != null ? player.inventory.GetAmount(grenadeItemDef.itemid) : 0;
+            if (grenadeCount > 0) 
             {
                 string letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1", 0UL);
                 if (string.IsNullOrEmpty(letId)) letId = (string)ImageLibrary?.Call("GetImage", "grenade.f1");
