@@ -11,8 +11,8 @@ using System;
 
 namespace Oxide.Plugins
 {
-    [Info("CoDWarfare", "YourName", "12.2.2")]
-    [Description("Final Stable Build: Full HUD + Store + Cache + Game Logic")]
+    [Info("CoDWarfare", "YourName", "12.3.0")]
+    [Description("Optimized Build: Pooled UI, Batched Updates, Scoreboard, Pagination")]
     public class CoDWarfare : RustPlugin
     {
         [PluginReference] Plugin ImageLibrary;
@@ -26,6 +26,31 @@ namespace Oxide.Plugins
         private const string UI_Health = "CoD_Health"; 
         private const string HitmarkerUI = "HitmarkerUI";
         private const string UI_Lobby = "CoD_Lobby";
+        private const string UI_Scoreboard = "CoD_Scoreboard";
+
+        // --- UI LAYOUT CONSTANTS (extracted magic numbers) ---
+        private const int STORE_COLUMNS = 4;
+        private const int STORE_ROWS = 2;
+        private const int STORE_ITEMS_PER_PAGE = STORE_COLUMNS * STORE_ROWS;
+        private const float STORE_CARD_WIDTH = 0.22f;
+        private const float STORE_CARD_HEIGHT = 0.32f;
+        private const float STORE_GRID_START_X = 0.02f;
+        private const float STORE_GRID_START_Y = 0.76f;
+        private const float STORE_GRID_GAP_X = 0.02f;
+        private const float STORE_GRID_GAP_Y = 0.03f;
+        
+        private const float HUD_UPDATE_BATCH_DELAY = 0.1f;
+        private const float KILL_CREDITS = 10f;
+        private const float WIN_CREDITS = 100f;
+        private const float HITSCAN_DAMAGE = 30f;
+        private const float SNIPER_DAMAGE = 100f;
+        private const float HITSCAN_RANGE = 300f;
+
+        // --- PERFORMANCE: UI Update Batching ---
+        private Dictionary<ulong, Timer> pendingHUDUpdates = new Dictionary<ulong, Timer>();
+        
+        // --- PERFORMANCE: Player cache to avoid FindByID calls ---
+        private Dictionary<ulong, BasePlayer> playerCache = new Dictionary<ulong, BasePlayer>();
 
         // --- CONFIGURATION ---
         private PluginConfig config;
@@ -102,8 +127,14 @@ namespace Oxide.Plugins
             public List<string> SavedEmblems = new List<string>(); 
             public List<string> UnlockedCards = new List<string> { "Default" };
             public int Credits = 0;
+            // Match statistics
+            public int Kills = 0;
+            public int Deaths = 0;
         }
         private Dictionary<ulong, PlayerStoreData> StoreData = new Dictionary<ulong, PlayerStoreData>();
+        
+        // Store pagination state
+        private Dictionary<ulong, int> storePageIndex = new Dictionary<ulong, int>();
 
         private List<string> WeaponLadder = new List<string>
         {
@@ -117,7 +148,12 @@ namespace Oxide.Plugins
         void OnServerInitialized()
         {
             LoadData();
-            foreach (var p in BasePlayer.activePlayerList) DestroyAllUI(p); 
+            foreach (var p in BasePlayer.activePlayerList) 
+            {
+                DestroyAllUI(p);
+                // Populate player cache
+                playerCache[p.userID] = p;
+            }
             StartLobby();
             
             // Cache item definitions for tactical, lethal, and arrows
@@ -129,6 +165,12 @@ namespace Oxide.Plugins
             
             // PRE-LOAD ICONS: Add item icons to ImageLibrary from Rust's CDN
             timer.Once(2f, () => {
+                if (ImageLibrary == null)
+                {
+                    PrintWarning("[CoDWarfare] ImageLibrary not found! Icons will use URL fallback.");
+                    return;
+                }
+                
                 Puts("[CoDWarfare] Pre-loading item icons into ImageLibrary...");
                 
                 // Load weapon icons using item definition to get proper icon URL
@@ -151,10 +193,50 @@ namespace Oxide.Plugins
                 Puts("[CoDWarfare] Item icons pre-load complete. Icons will be available after download.");
             });
         }
+        
+        // Player connection hooks for cache management
+        void OnPlayerConnected(BasePlayer player)
+        {
+            if (player != null)
+                playerCache[player.userID] = player;
+        }
+        
+        void OnPlayerDisconnected(BasePlayer player, string reason)
+        {
+            if (player != null)
+            {
+                playerCache.Remove(player.userID);
+                pendingHUDUpdates.Remove(player.userID);
+                storePageIndex.Remove(player.userID);
+            }
+        }
+        
+        // Helper to get cached player (avoids expensive FindByID calls)
+        BasePlayer GetCachedPlayer(ulong uid)
+        {
+            BasePlayer player;
+            if (playerCache.TryGetValue(uid, out player) && player != null && player.IsConnected)
+                return player;
+            
+            // Fallback to FindByID and update cache
+            player = BasePlayer.FindByID(uid);
+            if (player != null)
+                playerCache[uid] = player;
+            return player;
+        }
 
         void Unload()
         {
             foreach (var p in BasePlayer.activePlayerList) DestroyAllUI(p);
+            
+            // Clean up pending timers
+            foreach (var kvp in pendingHUDUpdates)
+            {
+                kvp.Value?.Destroy();
+            }
+            pendingHUDUpdates.Clear();
+            playerCache.Clear();
+            
             SaveData();
         }
 
@@ -355,7 +437,7 @@ namespace Oxide.Plugins
         {
             foreach (var uid in LobbyQueue)
             {
-                var p = BasePlayer.FindByID(uid);
+                var p = GetCachedPlayer(uid);
                 if (p != null) DrawLobbyBar(p);
             }
         }
@@ -371,6 +453,200 @@ namespace Oxide.Plugins
                 SaveData(); 
                 player.ChatMessage($"Spawn added to {map}"); 
             } 
+        }
+        
+        // --- SCOREBOARD SYSTEM ---
+        [ChatCommand("scoreboard")]
+        void CmdScoreboard(BasePlayer player)
+        {
+            if (CurrentState != GameState.Match)
+            {
+                player.ChatMessage("<color=#ce422b>[CoD]</color> Scoreboard is only available during a match!");
+                return;
+            }
+            ShowScoreboard(player);
+        }
+        
+        [ConsoleCommand("cod.closescoreboard")]
+        void ConsoleCloseScoreboard(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player != null) CuiHelper.DestroyUi(player, UI_Scoreboard);
+        }
+        
+        void ShowScoreboard(BasePlayer player)
+        {
+            CuiHelper.DestroyUi(player, UI_Scoreboard);
+            var container = new CuiElementContainer();
+            
+            // Main panel
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.05 0.05 0.08 0.95" }, 
+                RectTransform = { AnchorMin = "0.25 0.2", AnchorMax = "0.75 0.8" }, 
+                CursorEnabled = true 
+            }, LayerMain, UI_Scoreboard);
+            
+            // Header bar
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.8 0.15 0.15 1" }, 
+                RectTransform = { AnchorMin = "0 0.9", AnchorMax = "1 1" } 
+            }, UI_Scoreboard, "ScoreHeader");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = $"🎮 SCOREBOARD - {CurrentMap.ToUpper()}", FontSize = 18, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 1 1 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "0.9 1" } 
+            }, "ScoreHeader");
+            
+            // Close button
+            container.Add(new CuiButton 
+            { 
+                Button = { Command = "cod.closescoreboard", Color = "0.6 0.1 0.1 1" }, 
+                RectTransform = { AnchorMin = "0.92 0.15", AnchorMax = "0.98 0.85" }, 
+                Text = { Text = "✕", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" } 
+            }, "ScoreHeader");
+            
+            // Column headers
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.1 0.1 0.12 1" }, 
+                RectTransform = { AnchorMin = "0 0.82", AnchorMax = "1 0.9" } 
+            }, UI_Scoreboard, "ColHeaders");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "PLAYER", FontSize = 12, Align = TextAnchor.MiddleLeft, Font = "robotocondensed-bold.ttf", Color = "0.7 0.7 0.7 1" }, 
+                RectTransform = { AnchorMin = "0.05 0", AnchorMax = "0.4 1" } 
+            }, "ColHeaders");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "LVL", FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "0.7 0.7 0.7 1" }, 
+                RectTransform = { AnchorMin = "0.4 0", AnchorMax = "0.52 1" } 
+            }, "ColHeaders");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "KILLS", FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "0.7 0.7 0.7 1" }, 
+                RectTransform = { AnchorMin = "0.52 0", AnchorMax = "0.64 1" } 
+            }, "ColHeaders");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "DEATHS", FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "0.7 0.7 0.7 1" }, 
+                RectTransform = { AnchorMin = "0.64 0", AnchorMax = "0.76 1" } 
+            }, "ColHeaders");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "K/D", FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "0.7 0.7 0.7 1" }, 
+                RectTransform = { AnchorMin = "0.76 0", AnchorMax = "0.88 1" } 
+            }, "ColHeaders");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "SCORE", FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "0.7 0.7 0.7 1" }, 
+                RectTransform = { AnchorMin = "0.88 0", AnchorMax = "1 1" } 
+            }, "ColHeaders");
+            
+            // Build sorted player list (by level/kills)
+            var playerStats = new List<(ulong uid, string name, int level, int kills, int deaths)>();
+            foreach (var uid in LobbyQueue)
+            {
+                var p = GetCachedPlayer(uid);
+                if (p != null)
+                {
+                    var data = GetPlayerData(uid);
+                    int level = PlayerLevel.ContainsKey(uid) ? PlayerLevel[uid] : 0;
+                    playerStats.Add((uid, p.displayName, level, data.Kills, data.Deaths));
+                }
+            }
+            
+            // Sort by level (desc), then by kills (desc)
+            playerStats = playerStats.OrderByDescending(x => x.level).ThenByDescending(x => x.kills).ToList();
+            
+            // Draw player rows
+            float rowHeight = 0.08f;
+            float startY = 0.8f;
+            int maxRows = 10;
+            
+            for (int i = 0; i < playerStats.Count && i < maxRows; i++)
+            {
+                var ps = playerStats[i];
+                float yMax = startY - (i * rowHeight);
+                float yMin = yMax - rowHeight + 0.01f;
+                
+                string rowColor = ps.uid == player.userID ? "0.15 0.25 0.35 0.8" : (i % 2 == 0 ? "0.08 0.08 0.1 0.6" : "0.1 0.1 0.12 0.6");
+                string rowPanel = $"Row_{i}";
+                
+                container.Add(new CuiPanel 
+                { 
+                    Image = { Color = rowColor }, 
+                    RectTransform = { AnchorMin = $"0 {yMin}", AnchorMax = $"1 {yMax}" } 
+                }, UI_Scoreboard, rowPanel);
+                
+                // Player name (with rank indicator)
+                string rankIcon = i == 0 ? "🥇 " : (i == 1 ? "🥈 " : (i == 2 ? "🥉 " : ""));
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{rankIcon}{ps.name}", FontSize = 12, Align = TextAnchor.MiddleLeft, Color = "1 1 1 1" }, 
+                    RectTransform = { AnchorMin = "0.05 0", AnchorMax = "0.4 1" } 
+                }, rowPanel);
+                
+                // Level
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{ps.level + 1}", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "1 0.8 0 1", Font = "robotocondensed-bold.ttf" }, 
+                    RectTransform = { AnchorMin = "0.4 0", AnchorMax = "0.52 1" } 
+                }, rowPanel);
+                
+                // Kills
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{ps.kills}", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.4 0.9 0.4 1" }, 
+                    RectTransform = { AnchorMin = "0.52 0", AnchorMax = "0.64 1" } 
+                }, rowPanel);
+                
+                // Deaths
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{ps.deaths}", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "0.9 0.4 0.4 1" }, 
+                    RectTransform = { AnchorMin = "0.64 0", AnchorMax = "0.76 1" } 
+                }, rowPanel);
+                
+                // K/D Ratio
+                float kd = ps.deaths > 0 ? (float)ps.kills / ps.deaths : ps.kills;
+                string kdColor = kd >= 1.0f ? "0.4 0.9 0.4 1" : "0.9 0.5 0.3 1";
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{kd:F2}", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = kdColor }, 
+                    RectTransform = { AnchorMin = "0.76 0", AnchorMax = "0.88 1" } 
+                }, rowPanel);
+                
+                // Score (kills * 100)
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{ps.kills * 100}", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = "1 0.85 0.2 1", Font = "robotocondensed-bold.ttf" }, 
+                    RectTransform = { AnchorMin = "0.88 0", AnchorMax = "1 1" } 
+                }, rowPanel);
+            }
+            
+            // Footer
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.08 0.08 0.1 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.06" } 
+            }, UI_Scoreboard, "ScoreFooter");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = $"Players: {LobbyQueue.Count}  •  Press TAB or /scoreboard to toggle", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.5 0.5 0.55 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
+            }, "ScoreFooter");
+            
+            CuiHelper.AddUi(player, container);
         }
 
         // --- MAP VOTE SYSTEM ---
@@ -406,7 +682,7 @@ namespace Oxide.Plugins
             // Refresh UI for all players in lobby
             foreach (var uid in LobbyQueue)
             {
-                var p = BasePlayer.FindByID(uid);
+                var p = GetCachedPlayer(uid);
                 if (p != null) ShowMapVoteUI(p);
             }
         }
@@ -564,12 +840,15 @@ namespace Oxide.Plugins
             return winner;
         }
 
-        // --- PROFESSIONAL STORE UI ---
-        void OpenStoreUI(BasePlayer player, string currentTab)
+        // --- PROFESSIONAL STORE UI WITH PAGINATION ---
+        void OpenStoreUI(BasePlayer player, string currentTab, int page = 0)
         {
             CuiHelper.DestroyUi(player, UI_Store);
             var container = new CuiElementContainer();
             var data = GetPlayerData(player.userID);
+            
+            // Store current page
+            storePageIndex[player.userID] = page;
 
             // Main panel with gradient-style background
             container.Add(new CuiPanel 
@@ -645,25 +924,6 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0.26 0.15", AnchorMax = "0.49 0.85" }, 
                 Text = { Text = "📁 MY CARDS", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = ownedTextColor, Font = "robotocondensed-bold.ttf" } 
             }, "TabBar");
-            
-            // Item count display
-            int itemCount = currentTab == "store" ? config.StoreCards.Count : (data.SavedEmblems.Count + data.UnlockedCards.Count);
-            container.Add(new CuiLabel 
-            { 
-                Text = { Text = $"{itemCount} items", FontSize = 11, Align = TextAnchor.MiddleRight, Color = "0.5 0.5 0.55 1" }, 
-                RectTransform = { AnchorMin = "0.7 0.15", AnchorMax = "0.98 0.85" } 
-            }, "TabBar");
-
-            // Content area grid configuration
-            const int STORE_COLUMNS = 4;
-            const int STORE_ROWS = 2;
-            const int MAX_VISIBLE_ITEMS = STORE_COLUMNS * STORE_ROWS; // 8 items per page
-            const float CARD_WIDTH = 0.22f;
-            const float CARD_HEIGHT = 0.32f;
-            const float GRID_START_X = 0.02f;
-            const float GRID_START_Y = 0.76f;
-            const float GRID_GAP_X = 0.02f;
-            const float GRID_GAP_Y = 0.03f;
 
             // Build display list
             List<(string Name, string Url, int Price, bool IsCustom, int CustomIndex)> displayItems = new List<(string, string, int, bool, int)>();
@@ -689,31 +949,58 @@ namespace Oxide.Plugins
                     if (confItem != null) displayItems.Add((confItem.Name, confItem.Url, confItem.Price, false, -1));
                 }
             }
+            
+            // Pagination calculations
+            int totalItems = displayItems.Count;
+            int totalPages = (int)Math.Ceiling((double)totalItems / STORE_ITEMS_PER_PAGE);
+            if (totalPages == 0) totalPages = 1;
+            if (page >= totalPages) page = totalPages - 1;
+            if (page < 0) page = 0;
+            
+            int startIndex = page * STORE_ITEMS_PER_PAGE;
+            int endIndex = Math.Min(startIndex + STORE_ITEMS_PER_PAGE, totalItems);
+            
+            // Item count and page display
+            string pageInfo = totalPages > 1 ? $"Page {page + 1}/{totalPages} • {totalItems} items" : $"{totalItems} items";
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = pageInfo, FontSize = 11, Align = TextAnchor.MiddleRight, Color = "0.5 0.5 0.55 1" }, 
+                RectTransform = { AnchorMin = "0.55 0.15", AnchorMax = "0.98 0.85" } 
+            }, "TabBar");
 
-            for (int i = 0; i < displayItems.Count && i < MAX_VISIBLE_ITEMS; i++)
+            // Draw cards for current page
+            for (int i = startIndex; i < endIndex; i++)
             {
                 var card = displayItems[i];
-                int row = i / STORE_COLUMNS;
-                int col = i % STORE_COLUMNS;
-                float xMin = GRID_START_X + (col * (CARD_WIDTH + GRID_GAP_X));
-                float yMax = GRID_START_Y - (row * (CARD_HEIGHT + GRID_GAP_Y));
+                int gridIndex = i - startIndex;
+                int row = gridIndex / STORE_COLUMNS;
+                int col = gridIndex % STORE_COLUMNS;
+                float xMin = STORE_GRID_START_X + (col * (STORE_CARD_WIDTH + STORE_GRID_GAP_X));
+                float yMax = STORE_GRID_START_Y - (row * (STORE_CARD_HEIGHT + STORE_GRID_GAP_Y));
                 
                 // Card container with border effect
-                string cardPanel = $"Card_{i}";
+                string cardPanel = $"Card_{gridIndex}";
                 bool equipped = data.EquippedCardUrl == card.Url;
                 string borderColor = equipped ? "0.2 0.8 0.3 0.8" : "0.2 0.2 0.25 1";
                 
                 container.Add(new CuiPanel 
                 { 
                     Image = { Color = borderColor }, 
-                    RectTransform = { AnchorMin = $"{xMin} {yMax - CARD_HEIGHT}", AnchorMax = $"{xMin + CARD_WIDTH} {yMax}" } 
+                    RectTransform = { AnchorMin = $"{xMin} {yMax - STORE_CARD_HEIGHT}", AnchorMax = $"{xMin + STORE_CARD_WIDTH} {yMax}" } 
                 }, UI_Store, cardPanel);
                 
-                // Card image
-                string imgId = (string)ImageLibrary?.Call("GetImage", card.Url);
+                // Card image - null check for ImageLibrary
                 var imgComp = new CuiRawImageComponent();
-                if (!string.IsNullOrEmpty(imgId)) imgComp.Png = imgId; 
-                else imgComp.Url = card.Url;
+                if (ImageLibrary != null)
+                {
+                    string imgId = (string)ImageLibrary.Call("GetImage", card.Url);
+                    if (!string.IsNullOrEmpty(imgId)) imgComp.Png = imgId; 
+                    else imgComp.Url = card.Url;
+                }
+                else
+                {
+                    imgComp.Url = card.Url;
+                }
                 
                 container.Add(new CuiElement 
                 { 
@@ -790,20 +1077,64 @@ namespace Oxide.Plugins
                 }, UI_Store);
             }
             
-            // Footer with emblem editor link
+            // Footer with pagination and emblem editor link
             container.Add(new CuiPanel 
             { 
                 Image = { Color = "0.08 0.08 0.1 1" }, 
                 RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.08" } 
             }, UI_Store, "StoreFooter");
             
-            container.Add(new CuiLabel 
-            { 
-                Text = { Text = "Create custom emblems with /emblem command", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.5 0.5 0.55 1" }, 
-                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
-            }, "StoreFooter");
+            // Pagination buttons (if needed)
+            if (totalPages > 1)
+            {
+                // Previous button
+                string prevColor = page > 0 ? "0.3 0.35 0.4 1" : "0.15 0.15 0.18 1";
+                string prevCmd = page > 0 ? $"cod.storepage {currentTab} {page - 1}" : "";
+                container.Add(new CuiButton 
+                { 
+                    Button = { Command = prevCmd, Color = prevColor }, 
+                    RectTransform = { AnchorMin = "0.02 0.15", AnchorMax = "0.12 0.85" }, 
+                    Text = { Text = "◀ PREV", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = page > 0 ? "1 1 1 1" : "0.4 0.4 0.4 1", Font = "robotocondensed-bold.ttf" } 
+                }, "StoreFooter");
+                
+                // Next button
+                string nextColor = page < totalPages - 1 ? "0.3 0.35 0.4 1" : "0.15 0.15 0.18 1";
+                string nextCmd = page < totalPages - 1 ? $"cod.storepage {currentTab} {page + 1}" : "";
+                container.Add(new CuiButton 
+                { 
+                    Button = { Command = nextCmd, Color = nextColor }, 
+                    RectTransform = { AnchorMin = "0.88 0.15", AnchorMax = "0.98 0.85" }, 
+                    Text = { Text = "NEXT ▶", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = page < totalPages - 1 ? "1 1 1 1" : "0.4 0.4 0.4 1", Font = "robotocondensed-bold.ttf" } 
+                }, "StoreFooter");
+                
+                // Center tip
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = "Create custom emblems with /emblem", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.5 0.5 0.55 1" }, 
+                    RectTransform = { AnchorMin = "0.15 0", AnchorMax = "0.85 1" } 
+                }, "StoreFooter");
+            }
+            else
+            {
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = "Create custom emblems with /emblem command", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.5 0.5 0.55 1" }, 
+                    RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
+                }, "StoreFooter");
+            }
             
             CuiHelper.AddUi(player, container);
+        }
+        
+        // Console command for pagination
+        [ConsoleCommand("cod.storepage")]
+        void ConsoleStorePage(ConsoleSystem.Arg arg)
+        {
+            var player = arg.Player();
+            if (player == null) return;
+            string tab = arg.GetString(0, "store");
+            int page = arg.GetInt(1, 0);
+            OpenStoreUI(player, tab, page);
         }
 
         // --- GAME LOGIC ---
@@ -838,7 +1169,7 @@ namespace Oxide.Plugins
             // Show map vote UI to all players in queue
             foreach (var uid in LobbyQueue)
             {
-                var p = BasePlayer.FindByID(uid);
+                var p = GetCachedPlayer(uid);
                 if (p != null) ShowMapVoteUI(p);
             }
             
@@ -856,7 +1187,7 @@ namespace Oxide.Plugins
             // Close map vote UI
             foreach (var uid in LobbyQueue)
             {
-                var p = BasePlayer.FindByID(uid);
+                var p = GetCachedPlayer(uid);
                 if (p != null) CuiHelper.DestroyUi(p, UI_MapVote);
             }
             
@@ -872,9 +1203,17 @@ namespace Oxide.Plugins
         {
             CurrentState = GameState.Match;
             
+            // Reset match stats for all players
             foreach (var uid in LobbyQueue)
             {
-                var p = BasePlayer.FindByID(uid);
+                var data = GetPlayerData(uid);
+                data.Kills = 0;
+                data.Deaths = 0;
+            }
+            
+            foreach (var uid in LobbyQueue)
+            {
+                var p = GetCachedPlayer(uid);
                 if (p != null)
                 {
                     CuiHelper.DestroyUi(p, UI_LobbyBar);
@@ -889,11 +1228,11 @@ namespace Oxide.Plugins
         {
             CurrentState = GameState.EndGame;
             var data = GetPlayerData(winner.userID);
-            data.Credits += 100;
+            data.Credits += (int)WIN_CREDITS;
             SaveData();
             foreach (var uid in LobbyQueue)
             {
-                var p = BasePlayer.FindByID(uid);
+                var p = GetCachedPlayer(uid);
                 if (p != null)
                 {
                     p.inventory.Strip();
@@ -907,7 +1246,12 @@ namespace Oxide.Plugins
 
         void RespawnPlayer(BasePlayer player)
         {
-            if (ArenaSpawns.ContainsKey(CurrentMap) && ArenaSpawns[CurrentMap].Count > 0)
+            // Error handling for missing arena spawns
+            if (!ArenaSpawns.ContainsKey(CurrentMap) || ArenaSpawns[CurrentMap].Count == 0)
+            {
+                PrintWarning($"[CoDWarfare] No spawns configured for map '{CurrentMap}'! Using player's current position.");
+            }
+            else
             {
                 var spawns = ArenaSpawns[CurrentMap];
                 TeleportTo(player, spawns[UnityEngine.Random.Range(0, spawns.Count)]);
@@ -916,7 +1260,7 @@ namespace Oxide.Plugins
             player.metabolism.calories.value = 500;
             GiveCurrentWeapon(player);
             DrawCenterBanner(player);
-            DrawGameHUD(player);
+            BatchedHUDUpdate(player);
         }
 
         void GiveCurrentWeapon(BasePlayer player)
@@ -946,17 +1290,17 @@ namespace Oxide.Plugins
             player.inventory.GiveItem(ItemManager.CreateByName("syringe.medical", 1), player.inventory.containerBelt);
             player.inventory.GiveItem(ItemManager.CreateByName("grenade.f1", 1), player.inventory.containerBelt);
 
-            NextTick(() => DrawGameHUD(player));
+            NextTick(() => BatchedHUDUpdate(player));
         }
 
         void OnWeaponFired(BaseProjectile projectile, BasePlayer player, ItemModProjectile mod, ProtoBuf.ProjectileShoot projectiles)
         {
-            if (CurrentState == GameState.Match) NextTick(() => DrawGameHUD(player));
+            if (CurrentState == GameState.Match) BatchedHUDUpdate(player);
         }
         
         void OnReloadWeapon(BasePlayer player, BaseProjectile projectile)
         {
-             if (CurrentState == GameState.Match) timer.Once(projectile.reloadTime + 0.1f, () => DrawGameHUD(player));
+             if (CurrentState == GameState.Match) timer.Once(projectile.reloadTime + 0.1f, () => BatchedHUDUpdate(player));
         }
 
         // Update HUD when player switches active item (weapon switching)
@@ -964,7 +1308,7 @@ namespace Oxide.Plugins
         {
             if (CurrentState == GameState.Match && player != null)
             {
-                NextTick(() => DrawGameHUD(player));
+                BatchedHUDUpdate(player);
             }
         }
 
@@ -972,7 +1316,7 @@ namespace Oxide.Plugins
         void OnItemUse(Item item, int amountToUse)
         {
             var player = item.GetOwnerPlayer();
-            if (player != null && CurrentState == GameState.Match) NextTick(() => DrawGameHUD(player));
+            if (player != null && CurrentState == GameState.Match) BatchedHUDUpdate(player);
         }
         
         // Update HUD when grenade/throwable is thrown
@@ -981,7 +1325,7 @@ namespace Oxide.Plugins
             if (CurrentState == GameState.Match && player != null)
             {
                 // Delay to allow inventory to update
-                timer.Once(0.1f, () => DrawGameHUD(player));
+                timer.Once(0.1f, () => BatchedHUDUpdate(player));
             }
         }
         
@@ -990,7 +1334,7 @@ namespace Oxide.Plugins
         {
             if (CurrentState == GameState.Match && player != null)
             {
-                timer.Once(0.1f, () => DrawGameHUD(player));
+                timer.Once(0.1f, () => BatchedHUDUpdate(player));
             }
         }
         
@@ -1000,7 +1344,7 @@ namespace Oxide.Plugins
             if (CurrentState == GameState.Match && player != null)
             {
                 // Small delay to allow inventory changes to complete
-                timer.Once(0.2f, () => DrawGameHUD(player));
+                timer.Once(0.2f, () => BatchedHUDUpdate(player));
             }
         }
         
@@ -1009,7 +1353,7 @@ namespace Oxide.Plugins
         {
             if (CurrentState == GameState.Match && player != null)
             {
-                timer.Once(0.5f, () => DrawGameHUD(player));
+                timer.Once(0.5f, () => BatchedHUDUpdate(player));
             }
         }
         
@@ -1021,7 +1365,7 @@ namespace Oxide.Plugins
             if (player != null && LobbyQueue.Contains(player.userID))
             {
                 timer.Once(0.1f, () => {
-                    if (player != null && player.IsConnected) DrawGameHUD(player);
+                    if (player != null && player.IsConnected) BatchedHUDUpdate(player);
                 });
             }
         }
@@ -1032,11 +1376,25 @@ namespace Oxide.Plugins
             BasePlayer victim = entity as BasePlayer;
             if (victim == null) return;
             BasePlayer killer = info?.Initiator as BasePlayer;
+            
+            // Track deaths
+            if (LobbyQueue.Contains(victim.userID))
+            {
+                var victimData = GetPlayerData(victim.userID);
+                victimData.Deaths++;
+            }
 
             if (killer != null)
             {
                 string weaponName = killer.GetActiveItem()?.info.displayName.translated ?? "UNKNOWN";
                 ShowKillCard(victim, killer, weaponName);
+                
+                // Track kills
+                if (LobbyQueue.Contains(killer.userID))
+                {
+                    var killerData = GetPlayerData(killer.userID);
+                    killerData.Kills++;
+                }
             }
             timer.Once(config.KillCardDuration, () => { if (victim != null && !victim.IsConnected) return; victim.Respawn(); RespawnPlayer(victim); });
 
@@ -1046,11 +1404,35 @@ namespace Oxide.Plugins
                 if (killerLevel >= WeaponLadder.Count - 1) { EndMatch(killer); return; }
                 PlayerLevel[killer.userID]++;
                 var kData = GetPlayerData(killer.userID);
-                kData.Credits += 10;
+                kData.Credits += (int)KILL_CREDITS;
                 Effect.server.Run("assets/bundled/prefabs/fx/minigames/chippy/chippy_payout.prefab", killer.transform.position); 
                 GiveCurrentWeapon(killer); 
-                DrawGameHUD(killer);
+                BatchedHUDUpdate(killer);
             }
+        }
+        
+        // --- PERFORMANCE: Batched HUD Updates ---
+        // Prevents rapid UI rebuilds by coalescing multiple update requests
+        void BatchedHUDUpdate(BasePlayer player)
+        {
+            if (player == null || !player.IsConnected) return;
+            
+            ulong uid = player.userID;
+            
+            // If there's already a pending update, don't schedule another
+            if (pendingHUDUpdates.ContainsKey(uid) && pendingHUDUpdates[uid] != null)
+            {
+                return;
+            }
+            
+            // Schedule the actual update with a small delay to batch multiple requests
+            pendingHUDUpdates[uid] = timer.Once(HUD_UPDATE_BATCH_DELAY, () => {
+                pendingHUDUpdates.Remove(uid);
+                if (player != null && player.IsConnected && CurrentState == GameState.Match)
+                {
+                    DrawGameHUD(player);
+                }
+            });
         }
 
         // --- PROFESSIONAL HUD (With Dynamic Icons) ---
@@ -1214,6 +1596,7 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, HitmarkerUI);
             CuiHelper.DestroyUi(player, UI_Lobby);
             CuiHelper.DestroyUi(player, UI_MapVote);
+            CuiHelper.DestroyUi(player, UI_Scoreboard);
         }
 
         void DrawCenterBanner(BasePlayer player)
@@ -1323,12 +1706,13 @@ namespace Oxide.Plugins
                     Effect.server.Run("assets/bundled/prefabs/fx/muzzleflash/assaultrifle.prefab", gun, StringPool.Get("muzzle"), Vector3.zero, Vector3.forward);
                     Ray ray = player.eyes.HeadRay();
                     RaycastHit hit;
-                    if (Physics.Raycast(ray, out hit, 300f, LayerMask.GetMask("Construction", "Terrain", "Player (Server)", "World")))
+                    if (Physics.Raycast(ray, out hit, HITSCAN_RANGE, LayerMask.GetMask("Construction", "Terrain", "Player (Server)", "World")))
                     {
                         var victim = hit.GetEntity() as BasePlayer;
                         if (victim != null)
                         {
-                            float dmg = 30f; if (gun.ShortPrefabName.Contains("sniper")) dmg = 100f;
+                            float dmg = HITSCAN_DAMAGE; 
+                            if (gun.ShortPrefabName.Contains("sniper")) dmg = SNIPER_DAMAGE;
                             victim.OnAttacked(new HitInfo(player, victim, Rust.DamageType.Bullet, dmg, hit.point));
                             Effect.server.Run("assets/bundled/prefabs/fx/minigames/chippy/chippy_encounter.prefab", player.transform.position);
                             ShowHitmarker(player);
