@@ -106,8 +106,10 @@ namespace Oxide.Plugins
         private List<string> AvailableMaps = new List<string> { "Nuketown", "Shipment", "Rust" };
         private Dictionary<ulong, string> MapVotes = new Dictionary<ulong, string>();
         private const string UI_MapVote = "CoD_MapVote";
+        private const string UI_Leaderboard = "CoD_Leaderboard";
         private bool MapVoteActive = false;
         private Timer mapVoteTimer = null;
+        private Vector3? LobbySpawn = null;
         
         private HashSet<ulong> LobbyQueue = new HashSet<ulong>(); 
         private Dictionary<ulong, int> PlayerLevel = new Dictionary<ulong, int>();
@@ -482,7 +484,23 @@ namespace Oxide.Plugins
                 PrintToChat($"<color=#ce422b>[CoD]</color> <color=#FFD700>{player.displayName}</color> left the queue. ({LobbyQueue.Count}/{config.MaxPlayersInQueue})");
                 DestroyAllUI(player);
                 UpdateAllLobbyBars();
+                
+                // Teleport to lobby spawn if set
+                if (LobbySpawn.HasValue)
+                {
+                    TeleportTo(player, LobbySpawn.Value);
+                    player.ChatMessage("<color=#ce422b>[CoD]</color> Returned to lobby.");
+                }
             }
+        }
+        
+        [ChatCommand("cod.setlobbyspawn")]
+        void CmdSetLobbySpawn(BasePlayer player, string cmd, string[] args)
+        {
+            if (!player.IsAdmin) return;
+            LobbySpawn = player.transform.position;
+            SaveData();
+            player.ChatMessage($"<color=#ce422b>[CoD]</color> Lobby spawn set at your position!");
         }
         
         void UpdateAllLobbyBars()
@@ -1282,6 +1300,10 @@ namespace Oxide.Plugins
             var data = GetPlayerData(winner.userID);
             data.Credits += (int)WIN_CREDITS;
             SaveData();
+            
+            // Store players for next match
+            var previousPlayers = new HashSet<ulong>(LobbyQueue);
+            
             foreach (var uid in LobbyQueue)
             {
                 var p = GetCachedPlayer(uid);
@@ -1292,8 +1314,50 @@ namespace Oxide.Plugins
                     DrawLobbyUI(p, $"WINNER: {winner.displayName.ToUpper()}");
                 }
             }
-            LobbyQueue.Clear();
-            timer.Once(10f, () => { foreach(var p in BasePlayer.activePlayerList) DestroyAllUI(p); StartLobby(); });
+            
+            // After 10 seconds, start next game loop with map vote
+            timer.Once(10f, () => { 
+                foreach(var p in BasePlayer.activePlayerList) DestroyAllUI(p); 
+                
+                // Reset to lobby state
+                CurrentState = GameState.Lobby;
+                LobbyQueue.Clear();
+                MapVotes.Clear();
+                MapVoteActive = false;
+                
+                // Re-add previous players to queue
+                foreach (var uid in previousPlayers)
+                {
+                    var p = GetCachedPlayer(uid);
+                    if (p != null && p.IsConnected)
+                    {
+                        LobbyQueue.Add(uid);
+                        PlayerLevel[uid] = 0;
+                        
+                        // Reset match stats for next game
+                        var pData = GetPlayerData(uid);
+                        pData.Kills = 0;
+                        pData.Deaths = 0;
+                    }
+                }
+                
+                if (LobbyQueue.Count >= config.MinPlayersToStart)
+                {
+                    // Enough players - start map vote immediately
+                    PrintToChat("<color=#ce422b>[CoD]</color> <color=#FFD700>NEW MATCH STARTING!</color> Map vote beginning...");
+                    StartMapVotePhase();
+                }
+                else
+                {
+                    // Not enough players - back to lobby
+                    PrintToChat("<color=#ce422b>[CoD]</color> <color=#FFD700>LOBBY IS OPEN!</color> Type /join to enter the queue.");
+                    foreach (var uid in LobbyQueue)
+                    {
+                        var p = GetCachedPlayer(uid);
+                        if (p != null) DrawLobbyBar(p);
+                    }
+                }
+            });
         }
 
         void RespawnPlayer(BasePlayer player)
@@ -1689,6 +1753,78 @@ namespace Oxide.Plugins
             }, UI_HUD);
 
             CuiHelper.AddUi(player, container);
+            
+            // Draw live leaderboard (top-left)
+            DrawLiveLeaderboard(player);
+        }
+        
+        // Live leaderboard during match (top-left)
+        void DrawLiveLeaderboard(BasePlayer player)
+        {
+            CuiHelper.DestroyUi(player, UI_Leaderboard);
+            var container = new CuiElementContainer();
+            
+            // Main panel
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0 0 0 0.75" }, 
+                RectTransform = { AnchorMin = "0.01 0.75", AnchorMax = "0.18 0.98" } 
+            }, LayerMain, UI_Leaderboard);
+            
+            // Header
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "📊 LEADERBOARD", FontSize = 10, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 0.8 0 1" }, 
+                RectTransform = { AnchorMin = "0 0.85", AnchorMax = "1 1" } 
+            }, UI_Leaderboard);
+            
+            // Build sorted player list (by level/kills)
+            var playerStats = new List<(ulong uid, string name, int level, int kills)>();
+            foreach (var uid in LobbyQueue)
+            {
+                var p = GetCachedPlayer(uid);
+                if (p != null)
+                {
+                    var data = GetPlayerData(uid);
+                    int lvl = PlayerLevel.ContainsKey(uid) ? PlayerLevel[uid] : 0;
+                    playerStats.Add((uid, p.displayName, lvl, data.Kills));
+                }
+            }
+            
+            // Sort by level (desc), then by kills (desc)
+            playerStats = playerStats.OrderByDescending(x => x.level).ThenByDescending(x => x.kills).ToList();
+            
+            // Show top 5
+            float rowHeight = 0.16f;
+            float startY = 0.82f;
+            int maxRows = 5;
+            
+            for (int i = 0; i < playerStats.Count && i < maxRows; i++)
+            {
+                var ps = playerStats[i];
+                float yMax = startY - (i * rowHeight);
+                float yMin = yMax - rowHeight + 0.02f;
+                
+                string nameColor = ps.uid == player.userID ? "1 0.8 0 1" : "1 1 1 0.9";
+                string rankIcon = i == 0 ? "🥇" : (i == 1 ? "🥈" : (i == 2 ? "🥉" : $"#{i+1}"));
+                
+                // Truncate name if too long
+                string displayName = ps.name.Length > 10 ? ps.name.Substring(0, 10) + ".." : ps.name;
+                
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{rankIcon} {displayName}", FontSize = 9, Align = TextAnchor.MiddleLeft, Color = nameColor }, 
+                    RectTransform = { AnchorMin = $"0.05 {yMin}", AnchorMax = $"0.7 {yMax}" } 
+                }, UI_Leaderboard);
+                
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"L{ps.level + 1} K{ps.kills}", FontSize = 8, Align = TextAnchor.MiddleRight, Color = "0.6 0.9 0.6 1" }, 
+                    RectTransform = { AnchorMin = $"0.6 {yMin}", AnchorMax = $"0.95 {yMax}" } 
+                }, UI_Leaderboard);
+            }
+            
+            CuiHelper.AddUi(player, container);
         }
 
         // (Other Helpers Unchanged)
@@ -1729,6 +1865,7 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, UI_Lobby);
             CuiHelper.DestroyUi(player, UI_MapVote);
             CuiHelper.DestroyUi(player, UI_Scoreboard);
+            CuiHelper.DestroyUi(player, UI_Leaderboard);
         }
 
         void DrawCenterBanner(BasePlayer player)
@@ -1888,6 +2025,7 @@ namespace Oxide.Plugins
         { 
             public Dictionary<string, List<SpawnPoint>> Arenas = new Dictionary<string, List<SpawnPoint>>(); 
             public Dictionary<ulong, PlayerStoreData> Players = new Dictionary<ulong, PlayerStoreData>();
+            public SpawnPoint LobbySpawnPoint = null;
         }
         void SaveData() 
         { 
@@ -1897,7 +2035,14 @@ namespace Oxide.Plugins
             {
                 serializableArenas[kvp.Key] = kvp.Value.Select(v => new SpawnPoint(v)).ToList();
             }
-            Interface.Oxide.DataFileSystem.WriteObject("CoDWarfare", new StoredData { Arenas = serializableArenas, Players = StoreData }); 
+            
+            var storedData = new StoredData { 
+                Arenas = serializableArenas, 
+                Players = StoreData,
+                LobbySpawnPoint = LobbySpawn.HasValue ? new SpawnPoint(LobbySpawn.Value) : null
+            };
+            
+            Interface.Oxide.DataFileSystem.WriteObject("CoDWarfare", storedData); 
             Puts($"[CoDWarfare] Data saved - {StoreData.Count} players, {ArenaSpawns.Values.Sum(x => x.Count)} total spawns");
         }
         
@@ -1918,6 +2063,10 @@ namespace Oxide.Plugins
                         }
                     }
                     StoreData = data.Players ?? new Dictionary<ulong, PlayerStoreData>(); 
+                    
+                    // Load lobby spawn
+                    if (data.LobbySpawnPoint != null)
+                        LobbySpawn = data.LobbySpawnPoint.ToVector3();
                 }
             }
             catch (Exception ex)
@@ -1947,6 +2096,7 @@ namespace Oxide.Plugins
             
             Puts($"[CoDWarfare] Data loaded - {StoreData.Count} players with {totalEmblems} total emblems");
             Puts($"[CoDWarfare] Spawns - Nuketown: {ArenaSpawns["Nuketown"].Count}, Rust: {ArenaSpawns["Rust"].Count}, Shipment: {ArenaSpawns["Shipment"].Count}");
+            Puts($"[CoDWarfare] Lobby spawn: {(LobbySpawn.HasValue ? "Set" : "Not set")}");
         }
         
         [ChatCommand("cod.listspawns")]
