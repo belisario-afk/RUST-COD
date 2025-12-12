@@ -1768,24 +1768,58 @@ namespace Oxide.Plugins
             }
         }
 
+        class SpawnPoint
+        {
+            public float x;
+            public float y;
+            public float z;
+            
+            public SpawnPoint() { }
+            public SpawnPoint(Vector3 v) { x = v.x; y = v.y; z = v.z; }
+            public Vector3 ToVector3() => new Vector3(x, y, z);
+        }
+        
         class StoredData 
         { 
-            public Dictionary<string, List<Vector3>> Arenas = new Dictionary<string, List<Vector3>>(); 
+            public Dictionary<string, List<SpawnPoint>> Arenas = new Dictionary<string, List<SpawnPoint>>(); 
             public Dictionary<ulong, PlayerStoreData> Players = new Dictionary<ulong, PlayerStoreData>();
         }
         void SaveData() 
         { 
-            Interface.Oxide.DataFileSystem.WriteObject("CoDWarfare", new StoredData { Arenas = ArenaSpawns, Players = StoreData }); 
+            // Convert Vector3 to SpawnPoint for proper JSON serialization
+            var serializableArenas = new Dictionary<string, List<SpawnPoint>>();
+            foreach (var kvp in ArenaSpawns)
+            {
+                serializableArenas[kvp.Key] = kvp.Value.Select(v => new SpawnPoint(v)).ToList();
+            }
+            Interface.Oxide.DataFileSystem.WriteObject("CoDWarfare", new StoredData { Arenas = serializableArenas, Players = StoreData }); 
             Puts($"[CoDWarfare] Data saved - {StoreData.Count} players, {ArenaSpawns.Values.Sum(x => x.Count)} total spawns");
         }
         
         void LoadData() 
         { 
-            var data = Interface.Oxide.DataFileSystem.ReadObject<StoredData>("CoDWarfare"); 
-            if (data != null) 
-            { 
-                ArenaSpawns = data.Arenas ?? new Dictionary<string, List<Vector3>>(); 
-                StoreData = data.Players ?? new Dictionary<ulong, PlayerStoreData>(); 
+            try
+            {
+                var data = Interface.Oxide.DataFileSystem.ReadObject<StoredData>("CoDWarfare"); 
+                if (data != null) 
+                { 
+                    // Convert SpawnPoint back to Vector3
+                    ArenaSpawns = new Dictionary<string, List<Vector3>>();
+                    if (data.Arenas != null)
+                    {
+                        foreach (var kvp in data.Arenas)
+                        {
+                            ArenaSpawns[kvp.Key] = kvp.Value?.Select(sp => sp.ToVector3()).ToList() ?? new List<Vector3>();
+                        }
+                    }
+                    StoreData = data.Players ?? new Dictionary<ulong, PlayerStoreData>(); 
+                }
+            }
+            catch (Exception ex)
+            {
+                Puts($"[CoDWarfare] Error loading data: {ex.Message}");
+                ArenaSpawns = new Dictionary<string, List<Vector3>>();
+                StoreData = new Dictionary<ulong, PlayerStoreData>();
             }
             
             // Initialize empty map spawn lists if needed
@@ -1807,7 +1841,7 @@ namespace Oxide.Plugins
             }
             
             Puts($"[CoDWarfare] Data loaded - {StoreData.Count} players with {totalEmblems} total emblems");
-            Puts($"[CoDWarfare] Spawns - Nuketown: {(ArenaSpawns.ContainsKey("Nuketown") ? ArenaSpawns["Nuketown"].Count : 0)}, Rust: {(ArenaSpawns.ContainsKey("Rust") ? ArenaSpawns["Rust"].Count : 0)}, Shipment: {(ArenaSpawns.ContainsKey("Shipment") ? ArenaSpawns["Shipment"].Count : 0)}");
+            Puts($"[CoDWarfare] Spawns - Nuketown: {ArenaSpawns["Nuketown"].Count}, Rust: {ArenaSpawns["Rust"].Count}, Shipment: {ArenaSpawns["Shipment"].Count}");
         }
         
         [ChatCommand("cod.listspawns")]
