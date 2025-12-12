@@ -166,6 +166,9 @@ namespace Oxide.Plugins
             {"pistol.python", "assets/prefabs/weapons/python/effects/attack.prefab"},
             {"pistol.revolver", "assets/prefabs/weapons/revolver/effects/attack.prefab"}
         };
+        
+        // Cached bone ID for muzzle flash (performance optimization)
+        private static uint MuzzleFlashBoneId;
 
         // --- HOOKS ---
 
