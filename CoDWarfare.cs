@@ -621,21 +621,8 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0.88 0", AnchorMax = "1 1" } 
             }, "ColHeaders");
             
-            // Build sorted player list (by level/kills)
-            var playerStats = new List<(ulong uid, string name, int level, int kills, int deaths)>();
-            foreach (var uid in LobbyQueue)
-            {
-                var p = GetCachedPlayer(uid);
-                if (p != null)
-                {
-                    var data = GetPlayerData(uid);
-                    int level = PlayerLevel.ContainsKey(uid) ? PlayerLevel[uid] : 0;
-                    playerStats.Add((uid, p.displayName, level, data.Kills, data.Deaths));
-                }
-            }
-            
-            // Sort by level (desc), then by kills (desc)
-            playerStats = playerStats.OrderByDescending(x => x.level).ThenByDescending(x => x.kills).ToList();
+            // Build sorted player list using shared helper
+            var playerStats = GetSortedPlayerStats();
             
             // Draw player rows
             float rowHeight = 0.08f;
@@ -799,13 +786,8 @@ namespace Oxide.Plugins
                 Text = { Text = "✕", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" } 
             }, "VoteHeader");
 
-            // Count votes for each map
-            Dictionary<string, int> voteCounts = new Dictionary<string, int>();
-            foreach (var map in AvailableMaps) voteCounts[map] = 0;
-            foreach (var vote in MapVotes.Values)
-            {
-                if (voteCounts.ContainsKey(vote)) voteCounts[vote]++;
-            }
+            // Count votes for each map (using shared helper)
+            var voteCounts = GetVoteCounts();
 
             // Display maps in a row
             float mapWidth = 0.28f;
@@ -886,17 +868,23 @@ namespace Oxide.Plugins
             CuiHelper.AddUi(player, container);
         }
 
-        string GetWinningMap()
+        // --- Helper: Get vote counts for all maps ---
+        Dictionary<string, int> GetVoteCounts()
         {
-            if (MapVotes.Count == 0) return CurrentMap;
-            
-            Dictionary<string, int> voteCounts = new Dictionary<string, int>();
+            var voteCounts = new Dictionary<string, int>();
             foreach (var map in AvailableMaps) voteCounts[map] = 0;
             foreach (var vote in MapVotes.Values)
             {
                 if (voteCounts.ContainsKey(vote)) voteCounts[vote]++;
             }
+            return voteCounts;
+        }
+
+        string GetWinningMap()
+        {
+            if (MapVotes.Count == 0) return CurrentMap;
             
+            var voteCounts = GetVoteCounts();
             string winner = CurrentMap;
             int maxVotes = 0;
             foreach (var kvp in voteCounts)
@@ -1360,23 +1348,43 @@ namespace Oxide.Plugins
             });
         }
 
-        void RespawnPlayer(BasePlayer player)
+        // --- Helper: Setup player at spawn (used by RespawnPlayer and OnPlayerRespawned) ---
+        void SetupPlayerAtSpawn(BasePlayer player, Vector3 spawnPos)
         {
-            // Error handling for missing arena spawns
-            if (!ArenaSpawns.ContainsKey(CurrentMap) || ArenaSpawns[CurrentMap].Count == 0)
-            {
-                PrintWarning($"[CoDWarfare] No spawns configured for map '{CurrentMap}'! Using player's current position.");
-            }
-            else
-            {
-                var spawns = ArenaSpawns[CurrentMap];
-                TeleportTo(player, spawns[UnityEngine.Random.Range(0, spawns.Count)]);
-            }
+            TeleportTo(player, spawnPos);
             player.Heal(100);
             player.metabolism.calories.value = 500;
             GiveCurrentWeapon(player);
             DrawCenterBanner(player);
             BatchedHUDUpdate(player);
+        }
+        
+        // --- Helper: Get random spawn position for current map ---
+        Vector3? GetRandomSpawnPos()
+        {
+            if (!ArenaSpawns.ContainsKey(CurrentMap) || ArenaSpawns[CurrentMap].Count == 0)
+                return null;
+            var spawns = ArenaSpawns[CurrentMap];
+            return spawns[UnityEngine.Random.Range(0, spawns.Count)];
+        }
+
+        void RespawnPlayer(BasePlayer player)
+        {
+            var spawnPos = GetRandomSpawnPos();
+            if (!spawnPos.HasValue)
+            {
+                PrintWarning($"[CoDWarfare] No spawns configured for map '{CurrentMap}'! Using player's current position.");
+                // Still setup player but don't teleport
+                player.Heal(100);
+                player.metabolism.calories.value = 500;
+                GiveCurrentWeapon(player);
+                DrawCenterBanner(player);
+                BatchedHUDUpdate(player);
+            }
+            else
+            {
+                SetupPlayerAtSpawn(player, spawnPos.Value);
+            }
         }
 
         void GiveCurrentWeapon(BasePlayer player)
@@ -1582,22 +1590,14 @@ namespace Oxide.Plugins
             if (CurrentState != GameState.Match) return;
             if (!LobbyQueue.Contains(player.userID)) return;
             
-            // Teleport to arena spawn point
-            if (ArenaSpawns.ContainsKey(CurrentMap) && ArenaSpawns[CurrentMap].Count > 0)
+            var spawnPos = GetRandomSpawnPos();
+            if (spawnPos.HasValue)
             {
-                var spawns = ArenaSpawns[CurrentMap];
-                Vector3 spawnPos = spawns[UnityEngine.Random.Range(0, spawns.Count)];
-                
                 // Use NextTick to ensure player is fully spawned before teleporting
                 NextTick(() => {
                     if (player != null && player.IsConnected)
                     {
-                        TeleportTo(player, spawnPos);
-                        player.Heal(100);
-                        player.metabolism.calories.value = 500;
-                        GiveCurrentWeapon(player);
-                        DrawCenterBanner(player);
-                        BatchedHUDUpdate(player);
+                        SetupPlayerAtSpawn(player, spawnPos.Value);
                     }
                 });
             }
@@ -1778,21 +1778,8 @@ namespace Oxide.Plugins
                 RectTransform = { AnchorMin = "0 0.85", AnchorMax = "1 1" } 
             }, UI_Leaderboard);
             
-            // Build sorted player list (by level/kills)
-            var playerStats = new List<(ulong uid, string name, int level, int kills)>();
-            foreach (var uid in LobbyQueue)
-            {
-                var p = GetCachedPlayer(uid);
-                if (p != null)
-                {
-                    var data = GetPlayerData(uid);
-                    int lvl = PlayerLevel.ContainsKey(uid) ? PlayerLevel[uid] : 0;
-                    playerStats.Add((uid, p.displayName, lvl, data.Kills));
-                }
-            }
-            
-            // Sort by level (desc), then by kills (desc)
-            playerStats = playerStats.OrderByDescending(x => x.level).ThenByDescending(x => x.kills).ToList();
+            // Build sorted player list using shared helper
+            var playerStats = GetSortedPlayerStats();
             
             // Show top 5
             float rowHeight = 0.16f;
@@ -1943,6 +1930,23 @@ namespace Oxide.Plugins
                 StoreData[uid] = new PlayerStoreData { EquippedCardUrl = config.DefaultCardUrl };
             }
             return StoreData[uid];
+        }
+        
+        // --- Helper: Get sorted player stats for leaderboard/scoreboard ---
+        List<(ulong uid, string name, int level, int kills, int deaths)> GetSortedPlayerStats()
+        {
+            var playerStats = new List<(ulong uid, string name, int level, int kills, int deaths)>();
+            foreach (var uid in LobbyQueue)
+            {
+                var p = GetCachedPlayer(uid);
+                if (p != null)
+                {
+                    var data = GetPlayerData(uid);
+                    int level = PlayerLevel.ContainsKey(uid) ? PlayerLevel[uid] : 0;
+                    playerStats.Add((uid, p.displayName, level, data.Kills, data.Deaths));
+                }
+            }
+            return playerStats.OrderByDescending(x => x.level).ThenByDescending(x => x.kills).ToList();
         }
 
         bool IsHitscanWeapon(string shortname)
