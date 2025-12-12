@@ -423,28 +423,35 @@ namespace Oxide.Plugins
             CuiHelper.DestroyUi(player, UI_MapVote);
             var container = new CuiElementContainer();
 
-            // Main panel
+            // Main panel with professional styling
             container.Add(new CuiPanel 
             { 
-                Image = { Color = "0.1 0.1 0.1 0.95" }, 
-                RectTransform = { AnchorMin = "0.3 0.3", AnchorMax = "0.7 0.7" }, 
+                Image = { Color = "0.05 0.05 0.08 0.98" }, 
+                RectTransform = { AnchorMin = "0.25 0.25", AnchorMax = "0.75 0.75" }, 
                 CursorEnabled = true 
             }, LayerMain, UI_MapVote);
+            
+            // Header bar
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.8 0.4 0.15 1" }, 
+                RectTransform = { AnchorMin = "0 0.85", AnchorMax = "1 1" } 
+            }, UI_MapVote, "VoteHeader");
 
-            // Title
+            // Title with icon
             container.Add(new CuiLabel 
             { 
-                Text = { Text = "MAP VOTE", FontSize = 24, Align = TextAnchor.MiddleCenter, Color = "1 0.8 0 1" }, 
-                RectTransform = { AnchorMin = "0 0.85", AnchorMax = "1 0.98" } 
-            }, UI_MapVote);
+                Text = { Text = "🗳️  MAP VOTE", FontSize = 22, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 1 1 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "0.85 1" } 
+            }, "VoteHeader");
 
             // Close button
             container.Add(new CuiButton 
             { 
-                Button = { Command = "cod.closemapvote", Color = "0.8 0.2 0.2 1" }, 
-                RectTransform = { AnchorMin = "0.9 0.88", AnchorMax = "0.98 0.98" }, 
-                Text = { Text = "X", FontSize = 16, Align = TextAnchor.MiddleCenter } 
-            }, UI_MapVote);
+                Button = { Command = "cod.closemapvote", Color = "0.6 0.25 0.2 1" }, 
+                RectTransform = { AnchorMin = "0.88 0.15", AnchorMax = "0.98 0.85" }, 
+                Text = { Text = "✕", FontSize = 14, Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" } 
+            }, "VoteHeader");
 
             // Count votes for each map
             Dictionary<string, int> voteCounts = new Dictionary<string, int>();
@@ -454,34 +461,81 @@ namespace Oxide.Plugins
                 if (voteCounts.ContainsKey(vote)) voteCounts[vote]++;
             }
 
-            // Display maps
-            float buttonWidth = 0.28f;
-            float startX = 0.05f;
+            // Display maps in a row
+            float mapWidth = 0.28f;
+            float startX = 0.06f;
             float gap = 0.05f;
             
             for (int i = 0; i < AvailableMaps.Count && i < 3; i++)
             {
                 string mapName = AvailableMaps[i];
-                float xMin = startX + (i * (buttonWidth + gap));
+                float xMin = startX + (i * (mapWidth + gap));
                 int votes = voteCounts[mapName];
                 bool hasVoted = MapVotes.ContainsKey(player.userID) && MapVotes[player.userID] == mapName;
-                string btnColor = hasVoted ? "0.2 0.8 0.2 1" : "0.4 0.4 0.4 1";
                 
-                // Map name button
+                string mapPanel = $"Map_{i}";
+                string borderColor = hasVoted ? "0.2 0.8 0.3 0.9" : "0.2 0.2 0.25 1";
+                string btnColor = hasVoted ? "0.15 0.6 0.25 1" : "0.3 0.35 0.4 1";
+                
+                // Map card
+                container.Add(new CuiPanel 
+                { 
+                    Image = { Color = borderColor }, 
+                    RectTransform = { AnchorMin = $"{xMin} 0.2", AnchorMax = $"{xMin + mapWidth} 0.8" } 
+                }, UI_MapVote, mapPanel);
+                
+                // Map preview placeholder (dark background)
+                container.Add(new CuiPanel 
+                { 
+                    Image = { Color = "0.1 0.1 0.12 1" }, 
+                    RectTransform = { AnchorMin = "0.04 0.35", AnchorMax = "0.96 0.96" } 
+                }, mapPanel, $"MapPreview_{i}");
+                
+                // Map name
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = mapName.ToUpper(), FontSize = 16, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 1 1 1" }, 
+                    RectTransform = { AnchorMin = "0 0.5", AnchorMax = "1 0.9" } 
+                }, $"MapPreview_{i}");
+                
+                // Vote count badge
+                string voteColor = votes > 0 ? "0.8 0.5 0.15 1" : "0.3 0.3 0.35 1";
+                container.Add(new CuiPanel 
+                { 
+                    Image = { Color = voteColor }, 
+                    RectTransform = { AnchorMin = "0.7 0.7", AnchorMax = "0.95 0.95" } 
+                }, $"MapPreview_{i}", $"VoteBadge_{i}");
+                
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = $"{votes}", FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 1 1 1" }, 
+                    RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
+                }, $"VoteBadge_{i}");
+                
+                // Vote button
+                string btnText = hasVoted ? "✓ VOTED" : "VOTE";
                 container.Add(new CuiButton 
                 { 
                     Button = { Command = $"cod.votemap {mapName}", Color = btnColor }, 
-                    RectTransform = { AnchorMin = $"{xMin} 0.4", AnchorMax = $"{xMin + buttonWidth} 0.75" }, 
-                    Text = { Text = $"{mapName.ToUpper()}\n\n<size=14>Votes: {votes}</size>", FontSize = 16, Align = TextAnchor.MiddleCenter } 
-                }, UI_MapVote);
+                    RectTransform = { AnchorMin = "0.08 0.05", AnchorMax = "0.92 0.28" }, 
+                    Text = { Text = btnText, FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 1 1 1" } 
+                }, mapPanel);
             }
 
-            // Current map indicator
+            // Footer info
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.08 0.08 0.1 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.12" } 
+            }, UI_MapVote, "VoteFooter");
+            
+            int totalVotes = MapVotes.Count;
+            int totalPlayers = LobbyQueue.Count;
             container.Add(new CuiLabel 
             { 
-                Text = { Text = $"Current Map: <color=#FFD700>{CurrentMap}</color>", FontSize = 14, Align = TextAnchor.MiddleCenter }, 
-                RectTransform = { AnchorMin = "0 0.1", AnchorMax = "1 0.25" } 
-            }, UI_MapVote);
+                Text = { Text = $"Votes: {totalVotes}/{totalPlayers}  •  Current Map: {CurrentMap}", FontSize = 11, Align = TextAnchor.MiddleCenter, Color = "0.6 0.6 0.65 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
+            }, "VoteFooter");
 
             CuiHelper.AddUi(player, container);
         }
@@ -510,29 +564,108 @@ namespace Oxide.Plugins
             return winner;
         }
 
-        // --- NEW STORE UI ---
+        // --- PROFESSIONAL STORE UI ---
         void OpenStoreUI(BasePlayer player, string currentTab)
         {
             CuiHelper.DestroyUi(player, UI_Store);
             var container = new CuiElementContainer();
             var data = GetPlayerData(player.userID);
 
-            container.Add(new CuiPanel { Image = { Color = "0.1 0.1 0.1 0.98" }, RectTransform = { AnchorMin = "0.1 0.1", AnchorMax = "0.9 0.9" }, CursorEnabled = true }, LayerMain, UI_Store);
-            container.Add(new CuiLabel { Text = { Text = $"STORE | CREDITS: {data.Credits}", FontSize = 24, Align = TextAnchor.MiddleLeft }, RectTransform = { AnchorMin = "0.05 0.9", AnchorMax = "0.6 0.98" } }, UI_Store);
-            container.Add(new CuiButton { Button = { Close = UI_Store, Color = "0.8 0.2 0.2 1" }, RectTransform = { AnchorMin = "0.92 0.92", AnchorMax = "0.98 0.98" }, Text = { Text = "X", FontSize = 18, Align = TextAnchor.MiddleCenter } }, UI_Store);
-
-            string colStore = currentTab == "store" ? "0.8 0.4 0.2 1" : "0.3 0.3 0.3 1";
-            string colOwned = currentTab == "owned" ? "0.8 0.4 0.2 1" : "0.3 0.3 0.3 1";
+            // Main panel with gradient-style background
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.05 0.05 0.08 0.98" }, 
+                RectTransform = { AnchorMin = "0.15 0.12", AnchorMax = "0.85 0.88" }, 
+                CursorEnabled = true 
+            }, LayerMain, UI_Store);
             
-            container.Add(new CuiButton { Button = { Command = "cod.storetab store", Color = colStore }, RectTransform = { AnchorMin = "0.3 0.82", AnchorMax = "0.45 0.88" }, Text = { Text = "BROWSE STORE", FontSize = 14, Align = TextAnchor.MiddleCenter } }, UI_Store);
-            container.Add(new CuiButton { Button = { Command = "cod.storetab owned", Color = colOwned }, RectTransform = { AnchorMin = "0.46 0.82", AnchorMax = "0.61 0.88" }, Text = { Text = "MY CARDS", FontSize = 14, Align = TextAnchor.MiddleCenter } }, UI_Store);
+            // Header bar
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.12 0.12 0.15 1" }, 
+                RectTransform = { AnchorMin = "0 0.88", AnchorMax = "1 1" } 
+            }, UI_Store, "StoreHeader");
+            
+            // Title
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "CALLING CARD STORE", FontSize = 22, Align = TextAnchor.MiddleLeft, Font = "robotocondensed-bold.ttf", Color = "1 1 1 1" }, 
+                RectTransform = { AnchorMin = "0.03 0", AnchorMax = "0.4 1" } 
+            }, "StoreHeader");
+            
+            // Credits display with icon
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.2 0.2 0.25 1" }, 
+                RectTransform = { AnchorMin = "0.55 0.2", AnchorMax = "0.78 0.8" } 
+            }, "StoreHeader", "CreditsBox");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "◆", FontSize = 18, Align = TextAnchor.MiddleLeft, Color = "1 0.8 0 1" }, 
+                RectTransform = { AnchorMin = "0.08 0", AnchorMax = "0.25 1" } 
+            }, "CreditsBox");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = $"{data.Credits:N0}", FontSize = 16, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 0.85 0.2 1" }, 
+                RectTransform = { AnchorMin = "0.25 0", AnchorMax = "0.95 1" } 
+            }, "CreditsBox");
+            
+            // Close button
+            container.Add(new CuiButton 
+            { 
+                Button = { Close = UI_Store, Color = "0.7 0.2 0.2 1" }, 
+                RectTransform = { AnchorMin = "0.92 0.15", AnchorMax = "0.98 0.85" }, 
+                Text = { Text = "✕", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "1 1 1 1" } 
+            }, "StoreHeader");
 
-            int columns = 3;
-            float width = 0.28f; float height = 0.2f;
-            float startX = 0.05f; float startY = 0.75f; 
-            float gapX = 0.02f; float gapY = 0.05f;
+            // Tab bar
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.08 0.08 0.1 1" }, 
+                RectTransform = { AnchorMin = "0 0.78", AnchorMax = "1 0.87" } 
+            }, UI_Store, "TabBar");
+            
+            string storeTabColor = currentTab == "store" ? "0.8 0.4 0.15 1" : "0.25 0.25 0.3 1";
+            string ownedTabColor = currentTab == "owned" ? "0.8 0.4 0.15 1" : "0.25 0.25 0.3 1";
+            string storeTextColor = currentTab == "store" ? "1 1 1 1" : "0.6 0.6 0.6 1";
+            string ownedTextColor = currentTab == "owned" ? "1 1 1 1" : "0.6 0.6 0.6 1";
+            
+            container.Add(new CuiButton 
+            { 
+                Button = { Command = "cod.storetab store", Color = storeTabColor }, 
+                RectTransform = { AnchorMin = "0.02 0.15", AnchorMax = "0.25 0.85" }, 
+                Text = { Text = "🛒 BROWSE STORE", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = storeTextColor, Font = "robotocondensed-bold.ttf" } 
+            }, "TabBar");
+            
+            container.Add(new CuiButton 
+            { 
+                Button = { Command = "cod.storetab owned", Color = ownedTabColor }, 
+                RectTransform = { AnchorMin = "0.26 0.15", AnchorMax = "0.49 0.85" }, 
+                Text = { Text = "📁 MY CARDS", FontSize = 12, Align = TextAnchor.MiddleCenter, Color = ownedTextColor, Font = "robotocondensed-bold.ttf" } 
+            }, "TabBar");
+            
+            // Item count display
+            int itemCount = currentTab == "store" ? config.StoreCards.Count : (data.SavedEmblems.Count + data.UnlockedCards.Count);
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = $"{itemCount} items", FontSize = 11, Align = TextAnchor.MiddleRight, Color = "0.5 0.5 0.55 1" }, 
+                RectTransform = { AnchorMin = "0.7 0.15", AnchorMax = "0.98 0.85" } 
+            }, "TabBar");
 
-            // Build display list with metadata for command generation
+            // Content area grid configuration
+            const int STORE_COLUMNS = 4;
+            const int STORE_ROWS = 2;
+            const int MAX_VISIBLE_ITEMS = STORE_COLUMNS * STORE_ROWS; // 8 items per page
+            const float CARD_WIDTH = 0.22f;
+            const float CARD_HEIGHT = 0.32f;
+            const float GRID_START_X = 0.02f;
+            const float GRID_START_Y = 0.76f;
+            const float GRID_GAP_X = 0.02f;
+            const float GRID_GAP_Y = 0.03f;
+
+            // Build display list
             List<(string Name, string Url, int Price, bool IsCustom, int CustomIndex)> displayItems = new List<(string, string, int, bool, int)>();
             
             if (currentTab == "store") 
@@ -544,12 +677,12 @@ namespace Oxide.Plugins
             }
             else 
             {
-                // Reverse loop for newest uploaded first - track original index
+                // Custom emblems first (newest first)
                 for(int k = data.SavedEmblems.Count - 1; k >= 0; k--)
                 {
-                    displayItems.Add(($"CUSTOM #{k+1}", data.SavedEmblems[k], 0, true, k));
+                    displayItems.Add(($"Custom #{k+1}", data.SavedEmblems[k], 0, true, k));
                 }
-                // Add unlocked store cards
+                // Unlocked store cards
                 foreach(var name in data.UnlockedCards)
                 {
                     var confItem = config.StoreCards.FirstOrDefault(x => x.Name == name);
@@ -557,58 +690,119 @@ namespace Oxide.Plugins
                 }
             }
 
-            for (int i = 0; i < displayItems.Count; i++)
+            for (int i = 0; i < displayItems.Count && i < MAX_VISIBLE_ITEMS; i++)
             {
                 var card = displayItems[i];
-                int row = i / columns; int col = i % columns;
-                float xMin = startX + (col * (width + gapX));
-                float yMax = startY - (row * (height + gapY));
+                int row = i / STORE_COLUMNS;
+                int col = i % STORE_COLUMNS;
+                float xMin = GRID_START_X + (col * (CARD_WIDTH + GRID_GAP_X));
+                float yMax = GRID_START_Y - (row * (CARD_HEIGHT + GRID_GAP_Y));
                 
-                if (yMax < 0.1) break; 
-
+                // Card container with border effect
+                string cardPanel = $"Card_{i}";
+                bool equipped = data.EquippedCardUrl == card.Url;
+                string borderColor = equipped ? "0.2 0.8 0.3 0.8" : "0.2 0.2 0.25 1";
+                
+                container.Add(new CuiPanel 
+                { 
+                    Image = { Color = borderColor }, 
+                    RectTransform = { AnchorMin = $"{xMin} {yMax - CARD_HEIGHT}", AnchorMax = $"{xMin + CARD_WIDTH} {yMax}" } 
+                }, UI_Store, cardPanel);
+                
+                // Card image
                 string imgId = (string)ImageLibrary?.Call("GetImage", card.Url);
                 var imgComp = new CuiRawImageComponent();
-                if (!string.IsNullOrEmpty(imgId)) imgComp.Png = imgId; else imgComp.Url = card.Url; 
-
-                container.Add(new CuiElement { Parent = UI_Store, Components = { imgComp, new CuiRectTransformComponent { AnchorMin = $"{xMin} {yMax - height}", AnchorMax = $"{xMin + width} {yMax}" } } });
-
-                bool equipped = data.EquippedCardUrl == card.Url;
-                string btnColor = equipped ? "0.2 0.8 0.2 1" : "0.5 0.5 0.5 1";
-                string btnText = equipped ? "EQUIPPED" : "EQUIP";
-                string cmd = "";
+                if (!string.IsNullOrEmpty(imgId)) imgComp.Png = imgId; 
+                else imgComp.Url = card.Url;
+                
+                container.Add(new CuiElement 
+                { 
+                    Parent = cardPanel, 
+                    Components = { 
+                        imgComp, 
+                        new CuiRectTransformComponent { AnchorMin = "0.03 0.35", AnchorMax = "0.97 0.97" } 
+                    } 
+                });
+                
+                // Card name
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = card.Name.ToUpper(), FontSize = 9, Align = TextAnchor.MiddleCenter, Color = "0.9 0.9 0.9 1", Font = "robotocondensed-bold.ttf" }, 
+                    RectTransform = { AnchorMin = "0.02 0.2", AnchorMax = "0.98 0.35" } 
+                }, cardPanel);
+                
+                // Action button
+                string btnColor, btnText, cmd;
                 
                 if (currentTab == "store")
                 {
                     bool unlocked = data.UnlockedCards.Contains(card.Name);
-                    if (!unlocked) 
-                    { 
-                        btnColor = "0.8 0.4 0.2 1"; 
-                        btnText = $"BUY {card.Price}"; 
-                        cmd = $"cod.buycard {card.Name}"; 
-                    }
-                    else 
+                    if (equipped)
                     {
-                        // Use equipcard command with card name
+                        btnColor = "0.15 0.6 0.25 1";
+                        btnText = "✓ EQUIPPED";
+                        cmd = "";
+                    }
+                    else if (unlocked)
+                    {
+                        btnColor = "0.3 0.5 0.7 1";
+                        btnText = "EQUIP";
                         cmd = $"cod.equipcard {card.Name}";
-                    }
-                }
-                else 
-                {
-                    // MY CARDS tab - use index-based commands
-                    if (card.IsCustom)
-                    {
-                        // Custom emblem - use index
-                        cmd = $"cod.equipemblem {card.CustomIndex}";
                     }
                     else
                     {
-                        // Store card in owned list - use card name
-                        cmd = $"cod.equipcard {card.Name}";
+                        btnColor = "0.7 0.5 0.15 1";
+                        btnText = $"◆ {card.Price}";
+                        cmd = $"cod.buycard {card.Name}";
                     }
                 }
-
-                container.Add(new CuiButton { Button = { Command = cmd, Color = btnColor }, RectTransform = { AnchorMin = $"{xMin} {yMax - height - 0.05f}", AnchorMax = $"{xMin + width} {yMax - height}" }, Text = { Text = btnText, FontSize = 12, Align = TextAnchor.MiddleCenter } }, UI_Store);
+                else
+                {
+                    if (equipped)
+                    {
+                        btnColor = "0.15 0.6 0.25 1";
+                        btnText = "✓ EQUIPPED";
+                        cmd = "";
+                    }
+                    else
+                    {
+                        btnColor = "0.3 0.5 0.7 1";
+                        btnText = "EQUIP";
+                        cmd = card.IsCustom ? $"cod.equipemblem {card.CustomIndex}" : $"cod.equipcard {card.Name}";
+                    }
+                }
+                
+                container.Add(new CuiButton 
+                { 
+                    Button = { Command = cmd, Color = btnColor }, 
+                    RectTransform = { AnchorMin = "0.05 0.03", AnchorMax = "0.95 0.18" }, 
+                    Text = { Text = btnText, FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "1 1 1 1", Font = "robotocondensed-bold.ttf" } 
+                }, cardPanel);
             }
+            
+            // Empty state message if no items
+            if (displayItems.Count == 0)
+            {
+                container.Add(new CuiLabel 
+                { 
+                    Text = { Text = currentTab == "owned" ? "No cards yet!\nVisit the store to purchase cards." : "No cards available.", FontSize = 16, Align = TextAnchor.MiddleCenter, Color = "0.5 0.5 0.55 1" }, 
+                    RectTransform = { AnchorMin = "0.2 0.3", AnchorMax = "0.8 0.6" } 
+                }, UI_Store);
+            }
+            
+            // Footer with emblem editor link
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = "0.08 0.08 0.1 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 0.08" } 
+            }, UI_Store, "StoreFooter");
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = "Create custom emblems with /emblem command", FontSize = 10, Align = TextAnchor.MiddleCenter, Color = "0.5 0.5 0.55 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
+            }, "StoreFooter");
+            
             CuiHelper.AddUi(player, container);
         }
 
@@ -881,7 +1075,7 @@ namespace Oxide.Plugins
             // 3. Ammo Count
             container.Add(new CuiLabel 
             { 
-                Text = { Text = ammoText, FontSize = 28, Align = TextAnchor.MiddleRight, Font="robotocondensed-bold.ttf" }, 
+                Text = { Text = ammoText, FontSize = 28, Align = TextAnchor.MiddleRight, Font = "robotocondensed-bold.ttf" }, 
                 RectTransform = { AnchorMin = "0.4 0.4", AnchorMax = "0.95 0.9" } 
             }, UI_HUD);
 
@@ -986,23 +1180,38 @@ namespace Oxide.Plugins
             var container = new CuiElementContainer();
             
             string status;
+            string bgColor;
             int playersNeeded = Math.Max(0, config.MinPlayersToStart - LobbyQueue.Count);
             
             if (MapVoteActive)
             {
-                status = $"MAP VOTE IN PROGRESS - {LobbyQueue.Count}/{config.MaxPlayersInQueue} PLAYERS";
+                status = $"🗳️ MAP VOTE IN PROGRESS • {LobbyQueue.Count} Players Ready • Use /mapvote";
+                bgColor = "0.7 0.4 0.1 0.9";
             }
             else if (LobbyQueue.Count >= config.MinPlayersToStart)
             {
-                status = $"QUEUE READY ({LobbyQueue.Count}/{config.MaxPlayersInQueue}) - STARTING SOON!";
+                status = $"✓ QUEUE READY ({LobbyQueue.Count}/{config.MaxPlayersInQueue}) • Map vote starting soon...";
+                bgColor = "0.2 0.6 0.3 0.9";
             }
             else
             {
-                status = $"IN QUEUE ({LobbyQueue.Count}/{config.MaxPlayersInQueue}) - NEED {playersNeeded} MORE";
+                status = $"⏳ IN QUEUE ({LobbyQueue.Count}/{config.MaxPlayersInQueue}) • Need {playersNeeded} more player(s)";
+                bgColor = "0.2 0.4 0.6 0.9";
             }
             
-            container.Add(new CuiPanel { Image = { Color = "0 0.5 0 0.8" }, RectTransform = { AnchorMin = "0.25 0.95", AnchorMax = "0.75 0.99" }, CursorEnabled = false }, LayerMain, UI_LobbyBar);
-            container.Add(new CuiLabel { Text = { Text = status, FontSize = 12, Align = TextAnchor.MiddleCenter }, RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } }, UI_LobbyBar);
+            container.Add(new CuiPanel 
+            { 
+                Image = { Color = bgColor }, 
+                RectTransform = { AnchorMin = "0.25 0.94", AnchorMax = "0.75 0.99" }, 
+                CursorEnabled = false 
+            }, LayerMain, UI_LobbyBar);
+            
+            container.Add(new CuiLabel 
+            { 
+                Text = { Text = status, FontSize = 12, Align = TextAnchor.MiddleCenter, Font = "robotocondensed-bold.ttf", Color = "1 1 1 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
+            }, UI_LobbyBar);
+            
             CuiHelper.AddUi(player, container);
         }
 
