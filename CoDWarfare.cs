@@ -1523,7 +1523,13 @@ namespace Oxide.Plugins
                     killerData.Kills++;
                 }
             }
-            timer.Once(config.KillCardDuration, () => { if (victim != null && victim.IsConnected && !victim.IsDead()) return; if (victim != null) victim.Respawn(); });
+            // Instant respawn - skip death screen completely
+            NextTick(() => {
+                if (victim != null && victim.IsConnected && victim.IsDead())
+                {
+                    victim.Respawn();
+                }
+            });
 
             if (killer != null && killer != victim)
             {
@@ -1582,6 +1588,17 @@ namespace Oxide.Plugins
                 }
                 Pool.FreeList(ref containers);
             });
+        }
+        
+        // Prevent death screen from showing by handling player wound state
+        object OnPlayerWound(BasePlayer player)
+        {
+            // In CoD matches, skip wounded state - go straight to death
+            if (CurrentState == GameState.Match && LobbyQueue.Contains(player.userID))
+            {
+                return false; // Prevent wounded state, player dies instantly
+            }
+            return null;
         }
         
         // Hook to intercept player respawn and teleport to arena spawn
