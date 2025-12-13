@@ -45,6 +45,8 @@ namespace Oxide.Plugins
         private const float HITSCAN_DAMAGE = 30f;
         private const float SNIPER_DAMAGE = 100f;
         private const float HITSCAN_RANGE = 300f;
+        private const float HEADSHOT_MULTIPLIER = 2.0f;
+        private const float HITSCAN_RAY_RADIUS = 0.05f; // Thinner ray for fairer gunfights
 
         // --- PERFORMANCE: UI Update Batching ---
         private Dictionary<ulong, Timer> pendingHUDUpdates = new Dictionary<ulong, Timer>();
@@ -1538,6 +1540,11 @@ namespace Oxide.Plugins
                 PlayerLevel[killer.userID]++;
                 var kData = GetPlayerData(killer.userID);
                 kData.Credits += (int)KILL_CREDITS;
+                
+                // Health regen to 100 for the killer after every kill
+                killer.Heal(100f);
+                killer.metabolism.bleeding.value = 0;
+                
                 Effect.server.Run("assets/bundled/prefabs/fx/minigames/chippy/chippy_payout.prefab", killer.transform.position); 
                 GiveCurrentWeapon(killer); 
                 BatchedHUDUpdate(killer);
@@ -1599,6 +1606,26 @@ namespace Oxide.Plugins
                 return false; // Prevent wounded state, player dies instantly
             }
             return null;
+        }
+        
+        // Skip sleeping/waking screen on respawn
+        object OnPlayerSleep(BasePlayer player)
+        {
+            if (CurrentState == GameState.Match && LobbyQueue.Contains(player.userID))
+            {
+                return false; // Prevent sleeping state
+            }
+            return null;
+        }
+        
+        // Immediately end sleeping state when player respawns
+        void OnPlayerSleepEnded(BasePlayer player)
+        {
+            if (CurrentState == GameState.Match && LobbyQueue.Contains(player.userID))
+            {
+                // Force player awake immediately
+                player.EndSleeping();
+            }
         }
         
         // Hook to intercept player respawn and teleport to arena spawn
@@ -2014,21 +2041,70 @@ namespace Oxide.Plugins
                     
                     Ray ray = player.eyes.HeadRay();
                     RaycastHit hit;
-                    if (Physics.Raycast(ray, out hit, HITSCAN_RANGE, LayerMask.GetMask("Construction", "Terrain", "Player (Server)", "World")))
+                    // Use SphereCast with thin radius for fairer gunfights
+                    if (Physics.SphereCast(ray, HITSCAN_RAY_RADIUS, out hit, HITSCAN_RANGE, LayerMask.GetMask("Construction", "Terrain", "Player (Server)", "World")))
                     {
                         var victim = hit.GetEntity() as BasePlayer;
                         if (victim != null)
                         {
                             float dmg = HITSCAN_DAMAGE; 
                             if (gun.ShortPrefabName.Contains("sniper")) dmg = SNIPER_DAMAGE;
+                            
+                            // Headshot detection - check if hit point is near head bone
+                            bool isHeadshot = IsHeadshot(victim, hit.point);
+                            if (isHeadshot)
+                            {
+                                dmg *= HEADSHOT_MULTIPLIER;
+                                // Play headshot sound for the shooter
+                                Effect.server.Run("assets/bundled/prefabs/fx/headshot.prefab", player.transform.position);
+                                ShowHeadshotMarker(player);
+                            }
+                            else
+                            {
+                                ShowHitmarker(player);
+                            }
+                            
                             victim.OnAttacked(new HitInfo(player, victim, Rust.DamageType.Bullet, dmg, hit.point));
                             Effect.server.Run("assets/bundled/prefabs/fx/minigames/chippy/chippy_encounter.prefab", player.transform.position);
-                            ShowHitmarker(player);
                         }
                         else Effect.server.Run("assets/bundled/prefabs/fx/impacts/concrete/concrete-impact-bullet-1.prefab", hit.point);
                     }
                 }
             }
+        }
+        
+        // Check if hit point is near victim's head
+        bool IsHeadshot(BasePlayer victim, Vector3 hitPoint)
+        {
+            if (victim == null) return false;
+            
+            // Get head bone position
+            Transform headBone = victim.FindBone("head");
+            if (headBone == null) return false;
+            
+            Vector3 headPos = headBone.position;
+            float distanceToHead = Vector3.Distance(hitPoint, headPos);
+            
+            // If hit is within 0.25m of head bone, it's a headshot
+            return distanceToHead <= 0.25f;
+        }
+        
+        // Show red headshot marker (different from regular hitmarker)
+        void ShowHeadshotMarker(BasePlayer player)
+        {
+            CuiHelper.DestroyUi(player, HitmarkerUI);
+            var elements = new CuiElementContainer();
+            elements.Add(new CuiPanel { 
+                Image = { Color = "0 0 0 0" }, 
+                RectTransform = { AnchorMin = "0.48 0.48", AnchorMax = "0.52 0.52" } 
+            }, LayerMain, HitmarkerUI);
+            // Red X for headshot
+            elements.Add(new CuiLabel { 
+                Text = { Text = "✕", FontSize = 28, Align = TextAnchor.MiddleCenter, Color = "1 0 0 1" }, 
+                RectTransform = { AnchorMin = "0 0", AnchorMax = "1 1" } 
+            }, HitmarkerUI);
+            CuiHelper.AddUi(player, elements);
+            timer.Once(0.15f, () => CuiHelper.DestroyUi(player, HitmarkerUI));
         }
 
         class SpawnPoint
