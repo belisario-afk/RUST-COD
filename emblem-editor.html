@@ -1,0 +1,623 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Rust Emblem Editor</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-panel: #12121a;
+            --bg-card: #1a1a25;
+            --bg-hover: #252535;
+            --accent: #ff4444;
+            --accent-glow: rgba(255, 68, 68, 0.3);
+            --text: #ffffff;
+            --text-dim: #888899;
+            --border: #2a2a3a;
+            --success: #44ff88;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Rajdhani', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text);
+            min-height: 100vh;
+        }
+        .header {
+            background: linear-gradient(180deg, #1a1a25 0%, #0a0a0f 100%);
+            border-bottom: 1px solid var(--border);
+            padding: 15px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo {
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            color: var(--accent);
+            text-shadow: 0 0 20px var(--accent-glow);
+        }
+        .status {
+            background: var(--bg-card);
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            border: 1px solid var(--border);
+        }
+        .status.connected { border-color: var(--success); color: var(--success); }
+        .main-container {
+            display: flex;
+            height: calc(100vh - 70px);
+        }
+        .sidebar {
+            width: 280px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .sidebar-header {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            font-size: 13px;
+            color: var(--text-dim);
+        }
+        .category-tabs {
+            display: flex;
+            flex-wrap: wrap;
+            padding: 10px;
+            gap: 5px;
+            border-bottom: 1px solid var(--border);
+        }
+        .cat-tab {
+            flex: 1;
+            min-width: 60px;
+            padding: 8px 5px;
+            text-align: center;
+            font-size: 11px;
+            cursor: pointer;
+            border-radius: 4px;
+            background: var(--bg-card);
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+        .cat-tab:hover { background: var(--bg-hover); }
+        .cat-tab.active { 
+            border-color: var(--accent); 
+            color: var(--accent);
+            background: rgba(255,68,68,0.1);
+        }
+        .shape-grid {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 8px;
+        }
+        .shape-btn {
+            aspect-ratio: 1;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .shape-btn:hover { 
+            border-color: var(--accent); 
+            background: var(--bg-hover);
+            transform: scale(1.05);
+        }
+        .shape-btn svg { width: 60%; height: 60%; fill: #aaa; }
+        .canvas-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background: #08080c;
+            padding: 20px;
+        }
+        .toolbar {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+        .tool-group {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            background: var(--bg-panel);
+            padding: 8px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+        }
+        .tool-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; }
+        input[type="color"] { 
+            width: 30px; 
+            height: 30px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer;
+            background: var(--bg-card);
+        }
+        input[type="range"] { width: 80px; cursor: pointer; }
+        input[type="number"] {
+            width: 50px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 5px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        select {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px 14px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: var(--bg-hover); border-color: var(--accent); }
+        .btn.primary { background: var(--accent); border-color: var(--accent); }
+        .btn.primary:hover { background: #ff6666; }
+        .canvas-wrapper {
+            border: 2px solid var(--accent);
+            box-shadow: 0 0 40px var(--accent-glow);
+        }
+        .right-panel {
+            width: 260px;
+            background: var(--bg-panel);
+            border-left: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+        }
+        .panel-section {
+            padding: 15px;
+            border-bottom: 1px solid var(--border);
+        }
+        .panel-title {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            color: var(--text-dim);
+            margin-bottom: 12px;
+        }
+        .prop-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .prop-label { width: 60px; font-size: 12px; color: var(--text-dim); }
+        .prop-input {
+            flex: 1;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        .layers-list {
+            flex: 1;
+            overflow-y: auto;
+        }
+        .layer-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 15px;
+            border-bottom: 1px solid var(--border);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .layer-item:hover { background: var(--bg-hover); }
+        .layer-item.active { background: rgba(255,68,68,0.1); border-left: 3px solid var(--accent); }
+        .layer-icon { width: 20px; height: 20px; background: #444; border-radius: 3px; margin-right: 10px; }
+        .layer-name { flex: 1; font-size: 13px; }
+        .layer-btns { display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
+        .layer-item:hover .layer-btns { opacity: 1; }
+        .mini-btn {
+            width: 22px;
+            height: 22px;
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 10px;
+        }
+        .mini-btn:hover { border-color: var(--accent); color: var(--text); }
+        .mini-btn.del:hover { background: #ff4444; border-color: #ff4444; }
+        #imageUpload { display: none; }
+        .loading-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.9);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .loading-overlay.active { display: flex; }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .preview-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.95);
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            gap: 20px;
+        }
+        .preview-modal.active { display: flex; }
+        .preview-img { max-width: 80%; max-height: 50%; border: 2px solid var(--accent); }
+        @media (max-width: 1200px) {
+            .main-container { flex-direction: column; }
+            .sidebar, .right-panel { width: 100%; max-height: 40vh; }
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner"></div>
+        <div style="font-size: 16px;">Saving emblem...</div>
+    </div>
+    <div class="preview-modal" id="previewModal">
+        <h2>Preview Emblem</h2>
+        <img id="previewImg" class="preview-img">
+        <div style="display: flex; gap: 15px;">
+            <button class="btn" onclick="closePreview()">Cancel</button>
+            <button class="btn primary" onclick="confirmSave()">Save to Rust</button>
+        </div>
+    </div>
+    <header class="header">
+        <div class="logo">RUST EMBLEM EDITOR</div>
+        <div class="status" id="statusBadge">Not Connected</div>
+    </header>
+    <main class="main-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">Decal Library</div>
+            <div class="category-tabs">
+                <div class="cat-tab active" onclick="showCategory('basic')">Basic</div>
+                <div class="cat-tab" onclick="showCategory('military')">Military</div>
+                <div class="cat-tab" onclick="showCategory('symbols')">Symbols</div>
+                <div class="cat-tab" onclick="showCategory('badges')">Badges</div>
+                <div class="cat-tab" onclick="showCategory('weapons')">Weapons</div>
+                <div class="cat-tab" onclick="showCategory('animals')">Animals</div>
+            </div>
+            <div class="shape-grid" id="shapeGrid"></div>
+        </aside>
+        <section class="canvas-area">
+            <div class="toolbar">
+                <div class="tool-group">
+                    <span class="tool-label">Fill</span>
+                    <input type="color" id="fillColor" value="#ffffff" onchange="updateFill(this.value)">
+                </div>
+                <div class="tool-group">
+                    <span class="tool-label">Stroke</span>
+                    <input type="color" id="strokeColor" value="#000000" onchange="updateStroke(this.value)">
+                    <input type="number" id="strokeWidth" value="0" min="0" max="20" style="width:40px" onchange="updateStrokeWidth(this.value)">
+                </div>
+                <div class="tool-group">
+                    <span class="tool-label">Opacity</span>
+                    <input type="range" id="opacitySlider" min="0" max="100" value="100" onchange="updateOpacity(this.value)">
+                </div>
+                <div class="tool-group">
+                    <span class="tool-label">BG</span>
+                    <input type="color" id="bgColor" value="#000000" onchange="canvas.backgroundColor=this.value;canvas.renderAll()">
+                </div>
+            </div>
+            <div class="toolbar">
+                <button class="btn" onclick="undo()">↶ Undo</button>
+                <button class="btn" onclick="redo()">↷ Redo</button>
+                <button class="btn" onclick="bringForward()">▲</button>
+                <button class="btn" onclick="sendBackward()">▼</button>
+                <button class="btn" onclick="duplicateObj()">⧉ Clone</button>
+                <button class="btn" onclick="flipH()">↔</button>
+                <button class="btn" onclick="flipV()">↕</button>
+                <button class="btn" onclick="deleteObj()">🗑</button>
+                <input type="file" id="imageUpload" accept="image/*" onchange="uploadImage(event)">
+                <button class="btn" onclick="document.getElementById('imageUpload').click()">📷 Image</button>
+                <button class="btn" onclick="addText()">✏ Text</button>
+            </div>
+            <div class="canvas-wrapper">
+                <canvas id="c" width="1133" height="207"></canvas>
+            </div>
+            <div class="toolbar" style="margin-top:15px">
+                <button class="btn" onclick="saveLocal()">💾 Save Local</button>
+                <button class="btn" onclick="loadLocal()">📂 Load Local</button>
+                <button class="btn" onclick="clearCanvas()">🗑 Clear All</button>
+                <button class="btn primary" onclick="previewSave()">SAVE TO RUST</button>
+            </div>
+        </section>
+        <aside class="right-panel">
+            <div class="panel-section">
+                <div class="panel-title">Properties</div>
+                <div class="prop-row">
+                    <span class="prop-label">X</span>
+                    <input type="number" class="prop-input" id="propX" onchange="updatePos()">
+                </div>
+                <div class="prop-row">
+                    <span class="prop-label">Y</span>
+                    <input type="number" class="prop-input" id="propY" onchange="updatePos()">
+                </div>
+                <div class="prop-row">
+                    <span class="prop-label">Width</span>
+                    <input type="number" class="prop-input" id="propW" onchange="updateSize()">
+                </div>
+                <div class="prop-row">
+                    <span class="prop-label">Height</span>
+                    <input type="number" class="prop-input" id="propH" onchange="updateSize()">
+                </div>
+                <div class="prop-row">
+                    <span class="prop-label">Rotation</span>
+                    <input type="number" class="prop-input" id="propAngle" onchange="updateAngle()">
+                </div>
+            </div>
+            <div class="sidebar-header">Layers</div>
+            <div class="layers-list" id="layersList"></div>
+        </aside>
+    </main>
+    <script>
+        const BRIDGE_URL = window.location.origin + "/upload";
+        let steamId = null;
+        let history = [];
+        let historyIdx = -1;
+        let historyLock = false;
+        let pendingData = null;
+        const shapes = {
+            basic: [
+                {n:"Square",p:"M0 0h512v512H0z"},
+                {n:"Circle",p:"M256 512A256 256 0 1 0 256 0a256 256 0 1 0 0 512z"},
+                {n:"Triangle",p:"M256 32L20 464h472L256 32z"},
+                {n:"Diamond",p:"M256 0L512 256 256 512 0 256z"},
+                {n:"Pentagon",p:"M256 16L16 198l92 298h296l92-298z"},
+                {n:"Hexagon",p:"M128 16L16 256l112 240h256l112-240L384 16z"},
+                {n:"Star",p:"M256 32l70.6 143.3 158 22.8-114.3 111.4 27 157.3L256 392.8 114.7 466.8l27-157.3L27.4 198.1l158-22.8z"},
+                {n:"Heart",p:"M256 448l-30-28C110 316 32 246 32 160 32 93 84 32 160 32c42 0 82 19 96 56 14-37 54-56 96-56 76 0 128 61 128 128 0 86-78 156-194 260z"},
+                {n:"Plus",p:"M192 0h128v192h192v128H320v192H192V320H0V192h192z"},
+                {n:"Ring",p:"M256 80c-97 0-176 79-176 176s79 176 176 176 176-79 176-176-79-176-176-176zm0 304c-71 0-128-57-128-128s57-128 128-128 128 57 128 128-57 128-128 128z"}
+            ],
+            military: [
+                {n:"Shield",p:"M256 16C176 16 112 80 112 160v176c0 96 144 160 144 160s144-64 144-160V160c0-80-64-144-144-144z"},
+                {n:"Dog Tag",p:"M368 32H144c-26 0-48 22-48 48v352c0 26 22 48 48 48h224c26 0 48-22 48-48V80c0-26-22-48-48-48zm-16 368H160V112h192v288z"},
+                {n:"Medal",p:"M256 320c-71 0-128-57-128-128S185 64 256 64s128 57 128 128-57 128-128 128zm0 32l-80 128h160z"},
+                {n:"Skull",p:"M256 0C115 0 0 87 0 195c0 49 18 93 47 128v84c0 15 9 28 22 34l80 34V512h214v-37l80-34c14-6 22-19 22-34v-84c29-35 47-79 47-128C512 87 397 0 256 0zm-80 320c-27 0-48-21-48-48s21-48 48-48 48 21 48 48-21 48-48 48zm160 0c-27 0-48-21-48-48s21-48 48-48 48 21 48 48-21 48-48 48z"},
+                {n:"Target",p:"M256 48C141 48 48 141 48 256s93 208 208 208 208-93 208-208S371 48 256 48zm0 352c-79 0-144-65-144-144s65-144 144-144 144 65 144 144-65 144-144 144zm0-240c-53 0-96 43-96 96s43 96 96 96 96-43 96-96-43-96-96-96zm0 144c-27 0-48-21-48-48s21-48 48-48 48 21 48 48-21 48-48 48z"},
+                {n:"Crosshair",p:"M256 48C141 48 48 141 48 256s93 208 208 208 208-93 208-208S371 48 256 48zm16 368V288h-32v128c-79-8-143-72-151-151h128v-32H89c8-79 72-143 151-151v128h32V82c79 8 143 72 151 151H295v32h128c-8 79-72 143-151 151z"},
+                {n:"Wings",p:"M256 256c-128 0-240-80-240-128s112-96 240-96 240 48 240 96-112 128-240 128zm0 64l-64 160h128z"},
+                {n:"Rank",p:"M32 96h448v64H32zm0 128h448v64H32zm0 128h448v64H32z"}
+            ],
+            symbols: [
+                {n:"Lightning",p:"M320 0L160 224h96L192 512l192-320h-96z"},
+                {n:"Fire",p:"M256 512c-88 0-160-72-160-160 0-73 48-134 115-154-10 26-16 54-16 83 0 125 101 226 226 226-44 3-88 5-110 5h-55zm0-256c0-88 72-160 160-160 0 88-72 160-160 160z"},
+                {n:"Crown",p:"M96 464h320v48H96zM0 208l128 48 128-208 128 208 128-48-48 208H48z"},
+                {n:"Anchor",p:"M256 96c27 0 48-21 48-48S283 0 256 0s-48 21-48 48 21 48 48 48zm-96 80v240H96c-18 0-32 14-32 32v32c0 9 7 16 16 16h128v-96h96v96h128c9 0 16-7 16-16v-32c0-18-14-32-32-32h-64V176c0-27-21-48-48-48h-96c-27 0-48 21-48 48z"},
+                {n:"Infinity",p:"M384 176c-53 0-100 21-135 56l-7-8 7 8C214 181 181 160 128 160c-71 0-128 57-128 128s57 128 128 128c53 0 100-21 135-56l-7 8 7-8c35 35 68 56 121 56 71 0 128-57 128-128s-57-128-128-128zM128 352c-35 0-64-29-64-64s29-64 64-64 64 29 64 64-29 64-64 64zm256 0c-35 0-64-29-64-64s29-64 64-64 64 29 64 64-29 64-64 64z"},
+                {n:"Eye",p:"M256 144c-88 0-164 56-192 133 28 78 104 139 192 139s164-61 192-139c-28-77-104-133-192-133zm0 224c-53 0-96-43-96-96s43-96 96-96 96 43 96 96-43 96-96 96zm0-144c-27 0-48 21-48 48s21 48 48 48 48-21 48-48-21-48-48-48z"},
+                {n:"Moon",p:"M256 32c-94 0-176 52-220 129 24-12 50-19 78-19 97 0 176 79 176 176 0 28-7 54-19 78 77-44 129-126 129-220C400 88 336 17 254 32c1 0 1 0 2 0z"},
+                {n:"Sun",p:"M256 160c-53 0-96 43-96 96s43 96 96 96 96-43 96-96-43-96-96-96zm0 224v64h32v-64zm0-352v64h32V32zM32 224v32h64v-32zm416 0v32h64v-32zM91 91l45 45 23-23-45-45zm316 271l45 45 23-23-45-45zm-316 0l23 23 45-45-23-23zm316-271l-23 23 45 45 23-23z"}
+            ],
+            badges: [
+                {n:"Circle Badge",p:"M256 32C132 32 32 132 32 256s100 224 224 224 224-100 224-224S380 32 256 32zm0 400c-97 0-176-79-176-176S159 80 256 80s176 79 176 176-79 176-176 176z"},
+                {n:"Star Badge",p:"M256 32l56 112 124 18-90 88 22 124-112-58-112 58 22-124-90-88 124-18z"},
+                {n:"Ribbon",p:"M256 320c-88 0-160-72-160-160S168 0 256 0s160 72 160 160-72 160-160 160zm-80 32l-48 160 128-64 128 64-48-160"},
+                {n:"Banner",p:"M32 64h448v320H32zm48 48v224h352V112z"},
+                {n:"Award",p:"M256 0l48 144H464l-128 96 48 144-128-96-128 96 48-144L48 144h160z"},
+                {n:"Seal",p:"M256 32l32 64 64-32-32 64 64 32-64 32 32 64-64-32-32 64-32-64-64 32 32-64-64-32 64-32-32-64 64 32z"},
+                {n:"Emblem",p:"M256 32c124 0 224 100 224 224S380 480 256 480 32 380 32 256 132 32 256 32zm0 64c-88 0-160 72-160 160s72 160 160 160 160-72 160-160S344 96 256 96zm0 64c53 0 96 43 96 96s-43 96-96 96-96-43-96-96 43-96 96-96z"},
+                {n:"Frame",p:"M32 32v448h448V32zm416 416H64V64h384v384zM128 128v256h256V128z"}
+            ],
+            weapons: [
+                {n:"Pistol",p:"M416 32H288l-16 48H160v32h96l-16 48H128v128h32v-96h96l16 48h64l16-48h64V32z"},
+                {n:"Rifle",p:"M512 224H416l-32-64H256l-32 64H0v64h224l32 64h128l32-64h96z"},
+                {n:"Shotgun",p:"M480 192H320v-64H192v64H32v128h160v64h128v-64h160z"},
+                {n:"Sniper",p:"M512 240l-128-16-32-64H128l-32 64L0 240v32l96 16 32 64h256l32-64 96-16z"},
+                {n:"Knife",p:"M473 34l-156 161 26 15L473 61c8-8 7-20-1-28zM57 201L12 253c-13 15-13 37 0 51l141 163c15 17 39 17 53 0l45-52c13-15 13-37 0-51L111 201c-15-17-39-17-53 0z"},
+                {n:"Axe",p:"M416 0L256 160l-64-64L64 224l64 64-64 64 64 64 64-64 64 64 128-128-64-64z"},
+                {n:"Sword",p:"M498 142l-46-46c-5-5-12-5-17 0L256 275 114 133c-38-38-98-38-136 0-38 38-38 98 0 136L189 480l67-67 67 67 175-175c38-38 38-98 0-136z"},
+                {n:"Bomb",p:"M440 88l-52 52-40-40 40-41c25-25 66-25 91 0l1 2c25 25 25 65 0 90l-40 41-41-40 52-52-11-12zM256 256c-71 0-128 57-128 128s57 128 128 128 128-57 128-128-57-128-128-128z"}
+            ],
+            animals: [
+                {n:"Wolf",p:"M448 192L384 64 320 0H192L128 64 64 192v128l64 64v64l64 64h128l64-64v-64l64-64z"},
+                {n:"Eagle",p:"M256 0L128 128v128l-64 64v128l64 64h64l64-64 64 64h64l64-64V320l-64-64V128z"},
+                {n:"Bear",p:"M416 160c-35 0-64 29-64 64v32h-64v-32c0-35-29-64-64-64H96c-35 0-64 29-64 64v192c0 35 29 64 64 64h320c35 0 64-29 64-64V224c0-35-29-64-64-64z"},
+                {n:"Lion",p:"M384 64H128L64 128v256l64 64h256l64-64V128z"},
+                {n:"Dragon",p:"M496 192L384 80l-64 64-64-64L144 192l-64-64L0 208v112l80 80 64-64 64 64 112-112 64 64 64-64 48 48z"},
+                {n:"Shark",p:"M480 256L384 160H256L160 64 64 160l-32 96v96l32 64h128l96 32 96-32h96z"}
+            ]
+        };
+        window.onload = function() {
+            const params = new URLSearchParams(window.location.search);
+            if(params.has('id')) {
+                steamId = params.get('id');
+                document.getElementById('statusBadge').innerText = 'Connected: ' + steamId;
+                document.getElementById('statusBadge').classList.add('connected');
+            }
+            showCategory('basic');
+            updateLayers();
+            saveHistory();
+        };
+        const canvas = new fabric.Canvas('c', { preserveObjectStacking: true, backgroundColor: '#000000' });
+        canvas.on('selection:created', function() { updateLayers(); syncProps(); });
+        canvas.on('selection:updated', function() { updateLayers(); syncProps(); });
+        canvas.on('selection:cleared', function() { updateLayers(); });
+        canvas.on('object:modified', function() { updateLayers(); syncProps(); saveHistory(); });
+        canvas.on('object:added', function() { if(!historyLock) saveHistory(); });
+        canvas.on('object:removed', function() { if(!historyLock) saveHistory(); });
+        function showCategory(cat) {
+            document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+            event.target.classList.add('active');
+            const grid = document.getElementById('shapeGrid');
+            grid.innerHTML = '';
+            (shapes[cat] || []).forEach(s => {
+                const btn = document.createElement('div');
+                btn.className = 'shape-btn';
+                btn.title = s.n;
+                btn.innerHTML = '<svg viewBox="0 0 512 512"><path d="'+s.p+'"/></svg>';
+                btn.onclick = () => addShape(s.p, s.n);
+                grid.appendChild(btn);
+            });
+        }
+        function addShape(path, name) {
+            const color = document.getElementById('fillColor').value;
+            const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="'+path+'" fill="'+color+'"/></svg>';
+            fabric.loadSVGFromString(svg, function(objs, opts) {
+                const obj = fabric.util.groupSVGElements(objs, opts);
+                obj.set({ left: canvas.width/2, top: canvas.height/2, originX: 'center', originY: 'center', scaleX: 0.15, scaleY: 0.15, fill: color, layerName: name });
+                canvas.add(obj);
+                canvas.setActiveObject(obj);
+                canvas.renderAll();
+                updateLayers();
+            });
+        }
+        function addText() {
+            const txt = new fabric.IText('TEXT', {
+                left: canvas.width/2, top: canvas.height/2, originX: 'center', originY: 'center',
+                fontSize: 40, fill: document.getElementById('fillColor').value, fontFamily: 'Arial Black', layerName: 'Text'
+            });
+            canvas.add(txt);
+            canvas.setActiveObject(txt);
+            canvas.renderAll();
+            updateLayers();
+        }
+        function uploadImage(e) {
+            const file = e.target.files[0];
+            if(!file) return;
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                fabric.Image.fromURL(ev.target.result, function(img) {
+                    const scale = Math.min((canvas.width*0.5)/img.width, (canvas.height*0.8)/img.height);
+                    img.set({ left: canvas.width/2, top: canvas.height/2, originX: 'center', originY: 'center', scaleX: scale, scaleY: scale, layerName: 'Image' });
+                    canvas.add(img);
+                    canvas.setActiveObject(img);
+                    canvas.renderAll();
+                    updateLayers();
+                });
+            };
+            reader.readAsDataURL(file);
+            e.target.value = '';
+        }
+        function updateLayers() {
+            const list = document.getElementById('layersList');
+            list.innerHTML = '';
+            const objs = canvas.getObjects();
+            if(!objs.length) { list.innerHTML = '<div style="padding:20px;text-align:center;color:#555">No layers</div>'; return; }
+            for(let i = objs.length-1; i >= 0; i--) {
+                const o = objs[i];
+                const active = canvas.getActiveObject() === o;
+                const item = document.createElement('div');
+                item.className = 'layer-item' + (active ? ' active' : '');
+                item.onclick = function(e) { if(e.target.tagName==='BUTTON') return; canvas.setActiveObject(o); canvas.renderAll(); updateLayers(); syncProps(); };
+                const icon = document.createElement('div');
+                icon.className = 'layer-icon';
+                icon.style.backgroundColor = o.fill || '#444';
+                const name = document.createElement('span');
+                name.className = 'layer-name';
+                name.innerText = o.layerName || 'Layer ' + i;
+                const btns = document.createElement('div');
+                btns.className = 'layer-btns';
+                const up = document.createElement('button'); up.className = 'mini-btn'; up.innerText = '▲';
+                up.onclick = () => { canvas.bringForward(o); updateLayers(); };
+                const dn = document.createElement('button'); dn.className = 'mini-btn'; dn.innerText = '▼';
+                dn.onclick = () => { canvas.sendBackwards(o); updateLayers(); };
+                const del = document.createElement('button'); del.className = 'mini-btn del'; del.innerText = '✕';
+                del.onclick = () => { canvas.remove(o); updateLayers(); };
+                btns.appendChild(up); btns.appendChild(dn); btns.appendChild(del);
+                item.appendChild(icon); item.appendChild(name); item.appendChild(btns);
+                list.appendChild(item);
+            }
+        }
+        function syncProps() {
+            const o = canvas.getActiveObject();
+            if(!o) return;
+            if(typeof o.fill === 'string') document.getElementById('fillColor').value = o.fill;
+            if(o.stroke) document.getElementById('strokeColor').value = o.stroke;
+            document.getElementById('strokeWidth').value = o.strokeWidth || 0;
+            document.getElementById('opacitySlider').value = (o.opacity || 1) * 100;
+            document.getElementById('propX').value = Math.round(o.left || 0);
+            document.getElementById('propY').value = Math.round(o.top || 0);
+            document.getElementById('propW').value = Math.round((o.width || 0) * (o.scaleX || 1));
+            document.getElementById('propH').value = Math.round((o.height || 0) * (o.scaleY || 1));
+            document.getElementById('propAngle').value = Math.round(o.angle || 0);
+        }
+        function updateFill(v) { const o = canvas.getActiveObject(); if(o) { o.set('fill', v); canvas.renderAll(); updateLayers(); } }
+        function updateStroke(v) { const o = canvas.getActiveObject(); if(o) { o.set('stroke', v); canvas.renderAll(); } }
+        function updateStrokeWidth(v) { const o = canvas.getActiveObject(); if(o) { o.set('strokeWidth', parseInt(v)||0); canvas.renderAll(); } }
+        function updateOpacity(v) { const o = canvas.getActiveObject(); if(o) { o.set('opacity', v/100); canvas.renderAll(); } }
+        function updatePos() { const o = canvas.getActiveObject(); if(!o) return; o.set({ left: parseInt(document.getElementById('propX').value)||0, top: parseInt(document.getElementById('propY').value)||0 }); canvas.renderAll(); }
+        function updateSize() { const o = canvas.getActiveObject(); if(!o) return; const w = parseInt(document.getElementById('propW').value)||o.width; const h = parseInt(document.getElementById('propH').value)||o.height; o.set({ scaleX: w/o.width, scaleY: h/o.height }); canvas.renderAll(); }
+        function updateAngle() { const o = canvas.getActiveObject(); if(!o) return; o.set('angle', parseInt(document.getElementById('propAngle').value)||0); canvas.renderAll(); }
+        function bringForward() { const o = canvas.getActiveObject(); if(o) { canvas.bringForward(o); updateLayers(); } }
+        function sendBackward() { const o = canvas.getActiveObject(); if(o) { canvas.sendBackwards(o); updateLayers(); } }
+        function duplicateObj() { const o = canvas.getActiveObject(); if(!o) return; o.clone(function(c) { c.set({ left: c.left+20, top: c.top+20, layerName: (o.layerName||'Shape')+' Copy' }); canvas.add(c); canvas.setActiveObject(c); canvas.renderAll(); updateLayers(); }); }
+        function flipH() { const o = canvas.getActiveObject(); if(o) { o.set('flipX', !o.flipX); canvas.renderAll(); } }
+        function flipV() { const o = canvas.getActiveObject(); if(o) { o.set('flipY', !o.flipY); canvas.renderAll(); } }
+        function deleteObj() { const o = canvas.getActiveObject(); if(o) { canvas.remove(o); updateLayers(); } }
+        function clearCanvas() { if(confirm('Clear all?')) { canvas.clear(); canvas.backgroundColor = document.getElementById('bgColor').value; canvas.renderAll(); updateLayers(); } }
+        function saveHistory() { if(historyLock) return; historyIdx++; if(historyIdx < history.length) history = history.slice(0, historyIdx); history.push(JSON.stringify(canvas.toJSON(['layerName']))); if(history.length > 50) { history.shift(); historyIdx--; } }
+        function undo() { if(historyIdx <= 0) return; historyIdx--; historyLock = true; canvas.loadFromJSON(history[historyIdx], function() { canvas.renderAll(); updateLayers(); historyLock = false; }); }
+        function redo() { if(historyIdx >= history.length-1) return; historyIdx++; historyLock = true; canvas.loadFromJSON(history[historyIdx], function() { canvas.renderAll(); updateLayers(); historyLock = false; }); }
+        function saveLocal() { localStorage.setItem('rustEmblem', JSON.stringify(canvas.toJSON(['layerName']))); alert('Saved to browser!'); }
+        function loadLocal() { const d = localStorage.getItem('rustEmblem'); if(!d) { alert('No saved data'); return; } canvas.loadFromJSON(d, function() { canvas.renderAll(); updateLayers(); }); }
+        function previewSave() { canvas.discardActiveObject(); canvas.requestRenderAll(); const url = canvas.toDataURL({ format: 'png', quality: 1, multiplier: 2 }); document.getElementById('previewImg').src = url; document.getElementById('previewModal').classList.add('active'); pendingData = url; }
+        function closePreview() { document.getElementById('previewModal').classList.remove('active'); pendingData = null; }
+        function confirmSave() { closePreview(); saveToBridge(pendingData); }
+        function saveToBridge(data) {
+            let id = steamId;
+            if(!id) id = prompt('Enter your Steam64 ID:');
+            if(!id) return;
+            if(!data) { canvas.discardActiveObject(); canvas.requestRenderAll(); data = canvas.toDataURL({ format: 'png', quality: 1, multiplier: 1 }); }
+            document.getElementById('loadingOverlay').classList.add('active');
+            fetch(BRIDGE_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ steamId: id, imageData: data }) })
+            .then(r => r.json())
+            .then(d => { document.getElementById('loadingOverlay').classList.remove('active'); alert('Emblem saved! Use /myemblems in game.'); })
+            .catch(e => { document.getElementById('loadingOverlay').classList.remove('active'); alert('Error: ' + e.message); });
+        }
+        document.addEventListener('keydown', function(e) {
+            if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
+            if(e.key==='Delete'||e.key==='Backspace') deleteObj();
+            if(e.ctrlKey && e.key==='d') { e.preventDefault(); duplicateObj(); }
+            if(e.ctrlKey && e.key==='z') { e.preventDefault(); undo(); }
+            if(e.ctrlKey && e.key==='y') { e.preventDefault(); redo(); }
+        });
+    </script>
+</body>
+</html>
